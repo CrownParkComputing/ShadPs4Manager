@@ -11,7 +11,6 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 # Options
 option(BUILD_GUI "Build the GUI application" ON)
-option(BUILD_CLI "Build the CLI application" ON)
 
 # Platform-specific settings
 if(WIN32)
@@ -57,6 +56,7 @@ set(CORE_SOURCES
     src/core/crypto/crypto.cpp
     src/core/file_format/pkg.cpp
     src/core/file_format/pkg_type.cpp
+    src/core/file_format/pkg_optimized.cpp
 )
 
 # PKG tool library sources
@@ -64,35 +64,24 @@ set(PKG_TOOL_SOURCES
     src/pkg_tool/lib.cpp
 )
 
-# Core library (disabled for now due to compatibility issues)
-# Will be re-enabled once source code issues are resolved
-# add_library(shadps4_manager_core STATIC
-#     ${COMMON_SOURCES}
-#     ${CORE_SOURCES}
-#     ${PKG_TOOL_SOURCES}
-# )
-# 
-# target_include_directories(shadps4_manager_core PUBLIC 
-#     ${CMAKE_SOURCE_DIR}/src
-# )
-# 
-# target_link_libraries(shadps4_manager_core PUBLIC 
-#     cryptopp::cryptopp 
-#     zlibstatic
-# )
-# 
-# if(WIN32)
-#     target_link_libraries(shadps4_manager_core PUBLIC ws2_32)
-# endif()
+# Core library (temporarily enabled to diagnose issues)
+add_library(shadps4_manager_core STATIC
+    ${COMMON_SOURCES}
+    ${CORE_SOURCES}
+    ${PKG_TOOL_SOURCES}
+)
 
-# CLI Application (Simple version for now)
-if(BUILD_CLI)
-    add_executable(shadps4-cli src/cli/simple_main.cpp)
-    
-    # No dependencies needed for simple version
-    if(WIN32)
-        target_link_libraries(shadps4-cli PRIVATE ws2_32)
-    endif()
+target_include_directories(shadps4_manager_core PUBLIC 
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(shadps4_manager_core PUBLIC 
+    cryptopp::cryptopp 
+    zlibstatic
+)
+
+if(WIN32)
+    target_link_libraries(shadps4_manager_core PUBLIC ws2_32)
 endif()
 
 # GUI Application
@@ -112,6 +101,7 @@ if(BUILD_GUI)
         
         target_link_libraries(shadps4-manager-gui PRIVATE 
             Qt6::Widgets
+            shadps4_manager_core
         )
         
         # On Windows, set it as a GUI application
@@ -127,10 +117,6 @@ if(BUILD_GUI)
 endif()
 
 # Installation
-if(BUILD_CLI)
-    install(TARGETS shadps4-cli RUNTIME DESTINATION bin)
-endif()
-
 if(BUILD_GUI AND TARGET shadps4-manager-gui)
     install(TARGETS shadps4-manager-gui RUNTIME DESTINATION bin)
 endif()

@@ -12,22 +12,30 @@
 #include <QThread>
 #include <QFileInfo>
 #include <QDir>
-#include <QProcess>
 #include <QTime>
 #include <QCloseEvent>
 #include <QDateTime>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QStringList>
+#include <QTextCursor>
+
+// Include the PKG extraction library
+#include "pkg_tool/lib.h"
 
 class ExtractionWorker : public QObject {
     Q_OBJECT
 
 public:
     ExtractionWorker(const QString& pkgPath, const QString& outputPath, QObject* parent = nullptr)
-        : QObject(parent), m_pkgPath(pkgPath), m_outputPath(outputPath), m_process(nullptr) {}
+        : QObject(parent), m_pkgPath(pkgPath), m_outputPath(outputPath), m_isRunning(false), 
+          m_progressTimer(nullptr), m_currentProgress(0), m_lastActivityTime(0) {}
 
     ~ExtractionWorker() {
-        if (m_process && m_process->state() != QProcess::NotRunning) {
-            m_process->kill();
-            m_process->waitForFinished(3000);
+        m_isRunning = false;
+        if (m_progressTimer) {
+            m_progressTimer->stop();
+            m_progressTimer->deleteLater();
         }
     }
 
@@ -39,298 +47,191 @@ signals:
 
 public slots:
     void startExtraction() {
-        // Use the CLI tool to extract the PKG
-        m_process = new QProcess(this);
+        m_isRunning = true;
+        m_currentProgress = 0;
         
-        // Make sure output directory exists
-        QDir().mkpath(m_outputPath);
+        // Start a timer to provide regular progress updates
+        m_progressTimer = new QTimer(this);
+        connect(m_progressTimer, &QTimer::timeout, this, &ExtractionWorker::providePulseUpdate);
+        m_progressTimer->start(500); // Update every 500ms to keep UI responsive
         
-        // Build the command
-        QString cliPath = QCoreApplication::applicationDirPath() + "/shadps4-cli";
-        QStringList arguments;
-        arguments << m_pkgPath << m_outputPath;
-        
-        emit statusUpdate("Starting extraction...");
+        emit statusUpdate("Starting PKG extraction...");
         emit progressUpdate(5);
         
-        // Check if CLI tool exists
-        if (!QFileInfo::exists(cliPath)) {
-            QString errorMsg = QString(
-                "CLI extraction tool not found: %1\n\n"
-                "To fix this issue:\n"
-                "1. Build the original ps4-pkg-tools CLI tool\n"
-                "2. Copy it to the build directory as 'shadps4-cli'\n\n"
-                "The PKG extraction functionality requires the working CLI tool."
-            ).arg(cliPath);
-            emit finished(false, errorMsg);
-            return;
+        try {
+            // Convert Qt strings to std::filesystem::path
+            std::filesystem::path pkgPath = m_pkgPath.toStdString();
+            std::filesystem::path outputPath = m_outputPath.toStdString();
+            
+            // Make sure output directory exists
+            QDir().mkpath(m_outputPath);
+            
+            emit statusUpdate("Reading PKG metadata...");
+            emit progressUpdate(10);
+            
+            // First, read PKG metadata to get file count and validate the file
+            PkgMetadata metadata;
+            auto metadataError = ReadPkgMetadata(pkgPath, metadata);
+            if (metadataError) {
+                emit finished(false, QString("Failed to read PKG metadata: %1").arg(QString::fromStdString(*metadataError)));
+                return;
+            }
+            
+            emit statusUpdate(QString("PKG contains %1 files, Title ID: %2, Size: %3 MB")
+                            .arg(metadata.file_count)
+                            .arg(QString::fromStdString(metadata.title_id))
+                            .arg(metadata.pkg_size / (1024 * 1024)));
+            emit progressUpdate(15);
+            
+            // Set up progress callback with enhanced tracking for large files
+            auto progressCallback = [this](const ExtractionProgress& progress) {
+                if (!m_isRunning) return;
+                
+                QMutexLocker locker(&m_mutex);
+                
+                // Convert progress to percentage (15% already used for setup)
+                int percentage = 15 + static_cast<int>(progress.total_progress * 80.0);
+                m_currentProgress = percentage;
+                m_lastActivityTime = QDateTime::currentMSecsSinceEpoch();
+                
+                emit progressUpdate(percentage);
+                
+                // Enhanced file update for better large file tracking
+                QString currentFileInfo;
+                if (progress.file_progress > 0.0 && progress.file_progress < 1.0) {
+                    // Show intra-file progress for large files
+                    currentFileInfo = QString("Extracting: %1 (%2%) - File %3/%4")
+                                    .arg(QString::fromStdString(progress.current_file))
+                                    .arg(static_cast<int>(progress.file_progress * 100))
+                                    .arg(progress.current_file_index + 1)
+                                    .arg(progress.total_files);
+                } else {
+                    currentFileInfo = QString("Extracting: %1 (%2/%3)")
+                                    .arg(QString::fromStdString(progress.current_file))
+                                    .arg(progress.current_file_index + 1)
+                                    .arg(progress.total_files);
+                }
+                
+                m_currentFileInfo = currentFileInfo;
+                emit fileUpdate(currentFileInfo);
+                
+                // More frequent status updates for large file operations
+                static size_t lastUpdateIndex = SIZE_MAX;
+                if (progress.current_file_index != lastUpdateIndex || 
+                    (progress.file_progress > 0.0 && static_cast<int>(progress.file_progress * 100) % 2 == 0)) {
+                    
+                    QString statusInfo;
+                    if (progress.file_progress > 0.0 && progress.file_progress < 1.0) {
+                        statusInfo = QString("Processing large file: %1% complete")
+                                   .arg(static_cast<int>(progress.file_progress * 100));
+                    } else {
+                        statusInfo = QString("Extracted %1/%2 files... (%3%)")
+                                   .arg(progress.current_file_index)
+                                   .arg(progress.total_files)
+                                   .arg(percentage);
+                    }
+                    
+                    m_currentStatusInfo = statusInfo;
+                    emit statusUpdate(statusInfo);
+                    lastUpdateIndex = progress.current_file_index;
+                }
+            };
+            
+            emit statusUpdate("Extracting PKG files...");
+            
+            // Extract all files (empty indices vector means extract all)
+            std::vector<int> indices;
+            auto extractError = ExtractPkg(pkgPath, outputPath, indices, progressCallback);
+            
+            if (extractError) {
+                emit finished(false, QString("Extraction failed: %1").arg(QString::fromStdString(*extractError)));
+                return;
+            }
+            
+            if (!m_isRunning) {
+                emit finished(false, "Extraction cancelled");
+                return;
+            }
+            
+            // Stop the progress timer
+            if (m_progressTimer) {
+                m_progressTimer->stop();
+                m_progressTimer->deleteLater();
+                m_progressTimer = nullptr;
+            }
+            
+            emit progressUpdate(100);
+            emit statusUpdate("Extraction completed successfully!");
+            emit finished(true, "");
+            
+        } catch (const std::exception& e) {
+            if (m_progressTimer) {
+                m_progressTimer->stop();
+                m_progressTimer->deleteLater();
+                m_progressTimer = nullptr;
+            }
+            emit finished(false, QString("Extraction failed with exception: %1").arg(e.what()));
+        } catch (...) {
+            if (m_progressTimer) {
+                m_progressTimer->stop();
+                m_progressTimer->deleteLater();
+                m_progressTimer = nullptr;
+            }
+            emit finished(false, "Extraction failed with unknown error");
         }
-        
-        // Get PKG file size for progress calculation
-        QFileInfo pkgInfo(m_pkgPath);
-        m_pkgSizeBytes = pkgInfo.size();
-        
-        emit statusUpdate("Initializing extraction process...");
-        emit progressUpdate(10);
-        
-        // Connect process signals for better progress tracking
-        connect(m_process, &QProcess::readyReadStandardOutput, this, &ExtractionWorker::readProcessOutput);
-        connect(m_process, &QProcess::readyReadStandardError, this, &ExtractionWorker::readProcessError);
-        connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                this, &ExtractionWorker::processFinished);
-        
-        // Start the process
-        m_process->start(cliPath, arguments);
-        
-        if (!m_process->waitForStarted(5000)) {
-            emit finished(false, "Failed to start extraction process");
-            return;
-        }
-        
-        emit statusUpdate("Extraction process started...");
-        emit progressUpdate(15);
-        
-        // Start timers for progress monitoring
-        startProgressMonitoring();
-    }
-    
-    void startProgressMonitoring() {
-        // Timer to monitor output directory for file changes
-        m_directoryTimer = new QTimer(this);
-        connect(m_directoryTimer, &QTimer::timeout, this, &ExtractionWorker::monitorExtractionProgress);
-        m_directoryTimer->start(1000); // Check every second
-        
-        // Timer for regular progress updates
-        m_progressTimer = new QTimer(this);
-        connect(m_progressTimer, &QTimer::timeout, this, &ExtractionWorker::updateProgress);
-        m_progressTimer->start(3000); // Update every 3 seconds
-        
-        m_currentProgress = 15;
-        m_lastOutputSize = 0;
-        m_startTime = QDateTime::currentDateTime();
-        
-        // Take initial snapshot of output directory
-        m_initialFileCount = countFilesInDirectory(m_outputPath);
     }
 
 private slots:
-    void readProcessOutput() {
-        if (!m_process) return;
-        QByteArray data = m_process->readAllStandardOutput();
-        QString output = QString::fromLocal8Bit(data);
-        if (!output.trimmed().isEmpty()) {
-            emit fileUpdate("Processing: " + output.trimmed());
-        }
-    }
-    
-    void readProcessError() {
-        if (!m_process) return;
-        QByteArray data = m_process->readAllStandardError();
-        QString error = QString::fromLocal8Bit(data);
-        if (!error.trimmed().isEmpty()) {
-            emit statusUpdate("Warning: " + error.trimmed());
-        }
-    }
-    
-    void updateProgress() {
-        if (m_currentProgress < 85) {
-            // Calculate elapsed time
-            qint64 elapsed = m_startTime.secsTo(QDateTime::currentDateTime());
-            
-            // Update progress more conservatively for large files
-            if (elapsed > 60) { // After 1 minute, slow down progress increments
-                m_currentProgress += 2;
-            } else {
-                m_currentProgress += 5;
-            }
-            
-            emit progressUpdate(m_currentProgress);
-            
-            // Update status messages with time info
-            QString timeStr = QString(" (Elapsed: %1:%2)")
-                .arg(elapsed / 60, 2, 10, QChar('0'))
-                .arg(elapsed % 60, 2, 10, QChar('0'));
-            
-            if (m_currentProgress == 25) {
-                emit statusUpdate("Reading PKG header..." + timeStr);
-            } else if (m_currentProgress == 35) {
-                emit statusUpdate("Extracting game files..." + timeStr);
-            } else if (m_currentProgress == 50) {
-                emit statusUpdate("Processing assets..." + timeStr);
-            } else if (m_currentProgress == 65) {
-                emit statusUpdate("Extracting additional content..." + timeStr);
-            } else if (m_currentProgress == 80) {
-                emit statusUpdate("Finalizing extraction..." + timeStr);
-            }
-        }
-    }
-    
-    void monitorExtractionProgress() {
-        if (!m_process || m_process->state() != QProcess::Running) {
-            return;
-        }
+    void providePulseUpdate() {
+        if (!m_isRunning) return;
         
-        // Check output directory size and file count
-        qint64 currentOutputSize = getDirectorySize(m_outputPath);
-        int currentFileCount = countFilesInDirectory(m_outputPath);
+        QMutexLocker locker(&m_mutex);
         
-        // Calculate progress based on output size vs expected size
-        if (m_pkgSizeBytes > 0 && currentOutputSize > m_lastOutputSize) {
-            double sizeProgress = (double)currentOutputSize / (double)m_pkgSizeBytes;
-            int calculatedProgress = 15 + (int)(sizeProgress * 70); // 15% to 85% based on size
+        // Check if we haven't received an update in a while (more than 2 seconds)
+        qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+        qint64 timeSinceLastActivity = currentTime - m_lastActivityTime;
+        
+        if (timeSinceLastActivity > 2000) {
+            // Provide a visual pulse to show we're still working
+            static int pulseCounter = 0;
+            pulseCounter++;
             
-            if (calculatedProgress > m_currentProgress && calculatedProgress <= 85) {
-                m_currentProgress = calculatedProgress;
-                emit progressUpdate(m_currentProgress);
+            int dotCount = (pulseCounter % 4);
+            QString dots = QString(".").repeated(dotCount);
+            
+            QString pulseStatus = m_currentStatusInfo;
+            if (!pulseStatus.isEmpty()) {
+                // Add dots to show activity
+                pulseStatus += QString(" Working%1").arg(dots);
+                emit statusUpdate(pulseStatus);
             }
             
-            // Update file info
-            QString latestFile = getLatestModifiedFile(m_outputPath);
-            if (!latestFile.isEmpty() && latestFile != m_lastProcessedFile) {
-                m_lastProcessedFile = latestFile;
-                emit fileUpdate(QString("Extracting: %1").arg(QFileInfo(latestFile).fileName()));
+            // Keep file info current
+            if (!m_currentFileInfo.isEmpty()) {
+                emit fileUpdate(m_currentFileInfo + QString(" [Processing%1]").arg(dots));
             }
-            
-            // Update status with size and speed info
-            qint64 sizeDiff = currentOutputSize - m_lastOutputSize;
-            m_lastOutputSize = currentOutputSize;
-            
-            QString sizeStr = formatFileSize(currentOutputSize);
-            QString speedStr = "";
-            if (sizeDiff > 0) {
-                double speedMBps = (sizeDiff / (1024.0 * 1024.0)) / 1.0; // Per second (timer runs every 1s)
-                speedStr = QString(" (Speed: %1 MB/s)").arg(speedMBps, 0, 'f', 1);
-            }
-            
-            emit statusUpdate(QString("Extracted %1 files, %2%3")
-                .arg(currentFileCount - m_initialFileCount)
-                .arg(sizeStr)
-                .arg(speedStr));
-        }
-    }
-    
-    void processFinished(int exitCode, QProcess::ExitStatus exitStatus) {
-        // Stop all timers
-        if (m_progressTimer) {
-            m_progressTimer->stop();
-            m_progressTimer->deleteLater();
-            m_progressTimer = nullptr;
-        }
-        
-        if (m_directoryTimer) {
-            m_directoryTimer->stop();
-            m_directoryTimer->deleteLater();
-            m_directoryTimer = nullptr;
-        }
-        
-        if (exitStatus == QProcess::CrashExit) {
-            emit finished(false, "Extraction process crashed");
-            return;
-        }
-        
-        if (exitCode == 0) {
-            emit statusUpdate("Extraction completed successfully!");
-            emit progressUpdate(100);
-            emit finished(true, "");
-        } else {
-            QString error = QString("Extraction failed with exit code %1")
-                           .arg(exitCode);
-            if (m_process) {
-                QString stderr = QString::fromLocal8Bit(m_process->readAllStandardError());
-                if (!stderr.isEmpty()) {
-                    error += "\nError details: " + stderr;
-                }
-            }
-            emit finished(false, error);
         }
     }
 
 private:
-    // Helper functions for directory monitoring
-    qint64 getDirectorySize(const QString& path) {
-        QDir dir(path);
-        qint64 totalSize = 0;
-        
-        QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Name);
-        for (const QFileInfo& info : files) {
-            totalSize += info.size();
-        }
-        
-        QFileInfoList dirs = dir.entryInfoList(QDir::Dirs | QDir::NoSymLinks | QDir::NoDotAndDotDot, QDir::Name);
-        for (const QFileInfo& info : dirs) {
-            totalSize += getDirectorySize(info.absoluteFilePath());
-        }
-        
-        return totalSize;
-    }
-    
-    int countFilesInDirectory(const QString& path) {
-        QDir dir(path);
-        int count = 0;
-        
-        QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::NoSymLinks);
-        count += files.size();
-        
-        QFileInfoList dirs = dir.entryInfoList(QDir::Dirs | QDir::NoSymLinks | QDir::NoDotAndDotDot);
-        for (const QFileInfo& info : dirs) {
-            count += countFilesInDirectory(info.absoluteFilePath());
-        }
-        
-        return count;
-    }
-    
-    QString getLatestModifiedFile(const QString& path) {
-        QDir dir(path);
-        QFileInfoList files = dir.entryInfoList(QDir::Files | QDir::NoSymLinks, QDir::Time);
-        
-        if (!files.isEmpty()) {
-            return files.first().absoluteFilePath();
-        }
-        
-        // Check subdirectories
-        QFileInfoList dirs = dir.entryInfoList(QDir::Dirs | QDir::NoSymLinks | QDir::NoDotAndDotDot);
-        for (const QFileInfo& dirInfo : dirs) {
-            QString latestInSubdir = getLatestModifiedFile(dirInfo.absoluteFilePath());
-            if (!latestInSubdir.isEmpty()) {
-                return latestInSubdir;
-            }
-        }
-        
-        return QString();
-    }
-    
-    QString formatFileSize(qint64 bytes) {
-        if (bytes >= 1024LL * 1024 * 1024) {
-            return QString("%1 GB").arg(bytes / (1024.0 * 1024.0 * 1024.0), 0, 'f', 2);
-        } else if (bytes >= 1024 * 1024) {
-            return QString("%1 MB").arg(bytes / (1024.0 * 1024.0), 0, 'f', 1);
-        } else if (bytes >= 1024) {
-            return QString("%1 KB").arg(bytes / 1024.0, 0, 'f', 0);
-        } else {
-            return QString("%1 bytes").arg(bytes);
-        }
-    }
-    
     QString m_pkgPath;
     QString m_outputPath;
-    QProcess* m_process;
-    QTimer* m_progressTimer = nullptr;
-    QTimer* m_directoryTimer = nullptr;
-    int m_currentProgress = 0;
-    qint64 m_pkgSizeBytes = 0;
-    qint64 m_lastOutputSize = 0;
-    int m_initialFileCount = 0;
-    QString m_lastProcessedFile;
-    QDateTime m_startTime;
+    bool m_isRunning;
+    QMutex m_mutex;
+    QTimer* m_progressTimer;
+    int m_currentProgress;
+    qint64 m_lastActivityTime;
+    QString m_currentFileInfo;
+    QString m_currentStatusInfo;
 };
 
 class MainWindow : public QWidget {
     Q_OBJECT
 
 public:
-    MainWindow() {
-        setWindowTitle("ShadPS4Manager - PKG Extractor");
-        setMinimumSize(700, 500);
+    MainWindow(QWidget* parent = nullptr) : QWidget(parent), isBatchMode(false), currentBatchIndex(0), totalBatchFiles(0) {
+        setWindowTitle("ShadPS4Manager v1.0.0");
+        setMinimumSize(600, 500);
         setupUI();
         applyStyles();
     }
@@ -353,6 +254,10 @@ public:
 
 private slots:
     void selectPkgFile() {
+        // Reset batch mode when selecting single file
+        isBatchMode = false;
+        selectedPkgFiles.clear();
+        
         QString file = QFileDialog::getOpenFileName(
             this, 
             "Select PS4 PKG File", 
@@ -369,6 +274,45 @@ private slots:
         }
     }
 
+    void selectPkgDirectory() {
+        QString dir = QFileDialog::getExistingDirectory(
+            this, 
+            "Select Directory with PKG Files", 
+            QDir::homePath()
+        );
+        
+        if (!dir.isEmpty()) {
+            // Find all PKG files in the selected directory
+            QDir pkgDir(dir);
+            QStringList pkgFiles = pkgDir.entryList(QStringList("*.pkg"), QDir::Files);
+            
+            if (pkgFiles.isEmpty()) {
+                QMessageBox::information(this, "No PKG Files", 
+                    QString("No PKG files found in directory:\n%1").arg(dir));
+                return;
+            }
+            
+            // Convert to absolute paths
+            selectedPkgFiles.clear();
+            for (const QString& file : pkgFiles) {
+                selectedPkgFiles.append(pkgDir.absoluteFilePath(file));
+            }
+            
+            isBatchMode = true;
+            selectedFile.clear(); // Clear single file selection
+            
+            fileLabel->setText(QString("Selected: %1 PKG files from directory").arg(pkgFiles.size()));
+            
+            // Calculate total size
+            qint64 totalSize = 0;
+            for (const QString& file : selectedPkgFiles) {
+                totalSize += QFileInfo(file).size();
+            }
+            fileSizeLabel->setText(QString("Total Size: %1 MB").arg(totalSize / (1024.0 * 1024.0), 0, 'f', 1));
+            extractButton->setEnabled(true);
+        }
+    }
+
     void selectOutputDir() {
         QString dir = QFileDialog::getExistingDirectory(
             this, 
@@ -377,381 +321,398 @@ private slots:
         );
         
         if (!dir.isEmpty()) {
-            outputDir = dir;
+            outputDirectory = dir;
             outputLabel->setText("Output: " + dir);
         }
     }
 
     void startExtraction() {
-        if (selectedFile.isEmpty()) {
-            QMessageBox::warning(this, "No File", "Please select a PKG file first.");
+        if (!isBatchMode && selectedFile.isEmpty()) {
+            QMessageBox::warning(this, "Error", "Please select a PKG file or directory first.");
             return;
         }
-
-        // Use same directory as PKG file if no output directory selected
-        if (outputDir.isEmpty()) {
-            QFileInfo info(selectedFile);
-            outputDir = info.dir().absolutePath() + "/" + info.baseName();
+        
+        if (isBatchMode && selectedPkgFiles.isEmpty()) {
+            QMessageBox::warning(this, "Error", "Please select a PKG file or directory first.");
+            return;
         }
-
-        // Disable UI during extraction
+        
+        if (outputDirectory.isEmpty()) {
+            if (isBatchMode) {
+                // For batch mode, ask user to select output directory
+                QString dir = QFileDialog::getExistingDirectory(
+                    this, 
+                    "Select Output Directory for Batch Extraction", 
+                    QDir::homePath()
+                );
+                if (dir.isEmpty()) {
+                    QMessageBox::information(this, "Output Required", 
+                        "Please select an output directory for batch extraction.");
+                    return;
+                }
+                outputDirectory = dir;
+            } else {
+                // For single file, auto-generate output directory
+                QFileInfo info(selectedFile);
+                outputDirectory = info.dir().absolutePath() + "/" + info.baseName() + "_extracted";
+            }
+        }
+        
+        // Disable buttons during extraction
         extractButton->setEnabled(false);
         selectFileButton->setEnabled(false);
-        selectOutputButton->setEnabled(false);
+        selectDirButton->setEnabled(false);
+        selectOutputDirButton->setEnabled(false);
         
-        // Show progress UI
-        progressBar->setVisible(true);
-        statusLabel->setVisible(true);
-        currentFileLabel->setVisible(true);
-        logTextEdit->setVisible(true);
-        logTextEdit->clear();
+        // Clear previous output
+        outputText->clear();
+        progressBar->setValue(0);
         
-        // Create worker and thread
-        QThread* thread = new QThread;
-        ExtractionWorker* worker = new ExtractionWorker(selectedFile, outputDir);
-        worker->moveToThread(thread);
-
-        // Connect signals
-        connect(thread, &QThread::started, worker, &ExtractionWorker::startExtraction);
-        connect(worker, &ExtractionWorker::progressUpdate, progressBar, &QProgressBar::setValue);
-        connect(worker, &ExtractionWorker::statusUpdate, this, &MainWindow::updateStatus);
-        connect(worker, &ExtractionWorker::fileUpdate, this, &MainWindow::updateCurrentFile);
-        connect(worker, &ExtractionWorker::finished, this, &MainWindow::extractionFinished);
-        connect(worker, &ExtractionWorker::finished, thread, &QThread::quit);
-        connect(thread, &QThread::finished, thread, &QThread::deleteLater);
-        connect(thread, &QThread::finished, worker, &QObject::deleteLater);
-
-        // Start extraction
-        thread->start();
-        
-        logTextEdit->append("Starting PKG extraction...");
-        logTextEdit->append("Input: " + selectedFile);
-        logTextEdit->append("Output: " + outputDir);
-    }
-
-    void updateStatus(const QString& status) {
-        statusLabel->setText(status);
-        logTextEdit->append("[" + QTime::currentTime().toString("hh:mm:ss") + "] " + status);
-    }
-    
-    void updateCurrentFile(const QString& filename) {
-        if (currentFileLabel) {
-            currentFileLabel->setText(filename);
+        if (isBatchMode) {
+            // Start batch processing
+            currentBatchIndex = 0;
+            totalBatchFiles = selectedPkgFiles.size();
+            statusLabel->setText(QString("Processing %1 of %2 files...").arg(1).arg(totalBatchFiles));
+            processBatchFile();
+        } else {
+            // Process single file
+            statusLabel->setText("Preparing extraction...");
+            
+            // Set up worker thread
+            QThread* thread = new QThread;
+            ExtractionWorker* worker = new ExtractionWorker(selectedFile, outputDirectory);
+            worker->moveToThread(thread);
+            
+            // Connect signals
+            connect(thread, &QThread::started, worker, &ExtractionWorker::startExtraction);
+            connect(worker, &ExtractionWorker::progressUpdate, progressBar, &QProgressBar::setValue);
+            connect(worker, &ExtractionWorker::statusUpdate, statusLabel, &QLabel::setText);
+            connect(worker, &ExtractionWorker::fileUpdate, this, &MainWindow::onFileUpdate);
+            connect(worker, &ExtractionWorker::finished, this, &MainWindow::onExtractionFinished);
+            connect(worker, &ExtractionWorker::finished, thread, &QThread::quit);
+            connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+            connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+            
+            thread->start();
         }
-        logTextEdit->append("[" + QTime::currentTime().toString("hh:mm:ss") + "] " + filename);
-    }
-    
-    void exitApplication() {
-        close();
     }
 
-    void extractionFinished(bool success, const QString& error) {
-        // Re-enable UI
+    void onFileUpdate(const QString& currentFile) {
+        outputText->append(currentFile);
+        // Auto-scroll to bottom
+        QTextCursor cursor = outputText->textCursor();
+        cursor.movePosition(QTextCursor::End);
+        outputText->setTextCursor(cursor);
+    }
+
+    void onExtractionFinished(bool success, const QString& error) {
+        // Re-enable buttons
         extractButton->setEnabled(true);
         selectFileButton->setEnabled(true);
-        selectOutputButton->setEnabled(true);
+        selectDirButton->setEnabled(true);
+        selectOutputDirButton->setEnabled(true);
         
         if (success) {
-            logTextEdit->append("✅ Extraction completed successfully!");
             QMessageBox::information(this, "Success", 
-                "PKG extraction completed!\n\nFiles extracted to:\n" + outputDir);
+                QString("PKG extraction completed successfully!\n\nOutput directory: %1").arg(outputDirectory));
+            statusLabel->setText("Extraction completed successfully!");
         } else {
-            logTextEdit->append("❌ Extraction failed: " + error);
-            QMessageBox::critical(this, "Extraction Failed", 
-                "Failed to extract PKG file:\n\n" + error);
-            
-            // Reset progress bar on failure
-            progressBar->setValue(0);
+            QMessageBox::critical(this, "Error", 
+                QString("PKG extraction failed:\n\n%1").arg(error));
+            statusLabel->setText("Extraction failed!");
         }
+    }
+    
+    void processBatchFile() {
+        if (currentBatchIndex >= selectedPkgFiles.size()) {
+            // Batch processing complete
+            onBatchFinished();
+            return;
+        }
+        
+        QString currentFile = selectedPkgFiles[currentBatchIndex];
+        QFileInfo info(currentFile);
+        QString fileOutputDir = outputDirectory + "/" + info.baseName() + "_extracted";
+        
+        outputText->append(QString("\n=== Processing file %1 of %2 ===").arg(currentBatchIndex + 1).arg(totalBatchFiles));
+        outputText->append(QString("File: %1").arg(info.fileName()));
+        outputText->append(QString("Output: %1").arg(fileOutputDir));
+        
+        ExtractionWorker* worker = new ExtractionWorker(currentFile, fileOutputDir);
+        QThread* thread = new QThread();
+        
+        worker->moveToThread(thread);
+        
+        connect(thread, &QThread::started, worker, &ExtractionWorker::startExtraction);
+        connect(worker, &ExtractionWorker::progressUpdate, this, &MainWindow::updateBatchProgress);
+        connect(worker, &ExtractionWorker::statusUpdate, statusLabel, &QLabel::setText);
+        connect(worker, &ExtractionWorker::fileUpdate, this, &MainWindow::onFileUpdate);
+        connect(worker, &ExtractionWorker::finished, this, &MainWindow::onBatchFileFinished);
+        connect(worker, &ExtractionWorker::finished, thread, &QThread::quit);
+        connect(thread, &QThread::finished, worker, &QObject::deleteLater);
+        connect(thread, &QThread::finished, thread, &QObject::deleteLater);
+        
+        thread->start();
+    }
+    
+    void updateBatchProgress(int percentage) {
+        // Calculate overall batch progress
+        int fileProgress = percentage;
+        int overallProgress = ((currentBatchIndex * 100) + fileProgress) / totalBatchFiles;
+        progressBar->setValue(overallProgress);
+    }
+    
+    void onBatchFileFinished(bool success, const QString& error) {
+        if (success) {
+            outputText->append(QString("✓ Successfully extracted file %1").arg(currentBatchIndex + 1));
+        } else {
+            outputText->append(QString("✗ Failed to extract file %1: %2").arg(currentBatchIndex + 1).arg(error));
+        }
+        
+        currentBatchIndex++;
+        
+        // Process next file
+        QTimer::singleShot(100, this, &MainWindow::processBatchFile);
+    }
+    
+    void onBatchFinished() {
+        statusLabel->setText("Batch extraction completed!");
+        progressBar->setValue(100);
+        
+        // Re-enable buttons
+        extractButton->setEnabled(true);
+        selectFileButton->setEnabled(true);
+        selectDirButton->setEnabled(true);
+        selectOutputDirButton->setEnabled(true);
+        
+        outputText->append(QString("\n=== Batch Extraction Complete ==="));
+        outputText->append(QString("Processed %1 PKG files").arg(totalBatchFiles));
+        outputText->append(QString("Output directory: %1").arg(outputDirectory));
+        
+        QMessageBox::information(this, "Batch Extraction Complete", 
+            QString("Successfully processed %1 PKG files!\n\nOutput directory: %2").arg(totalBatchFiles).arg(outputDirectory));
+    }
+    
+    void showAbout() {
+        QMessageBox::about(this, "About ShadPS4Manager",
+            "<h3>ShadPS4Manager v1.0.0</h3>"
+            "<p><b>PS4 PKG File Extractor</b></p>"
+            "<p>A GUI application for extracting PlayStation 4 PKG files.</p>"
+            "<br>"
+            "<p><b>Features:</b></p>"
+            "<ul>"
+            "<li>Single PKG file extraction</li>"
+            "<li>Batch directory processing</li>"
+            "<li>Memory-optimized for large files (20+ GB)</li>"
+            "<li>Real-time progress reporting</li>"
+            "<li>Integrated cryptography and compression support</li>"
+            "</ul>"
+            "<br>"
+            "<p><b>Usage:</b></p>"
+            "<ul>"
+            "<li><b>Single File:</b> Click 'Select PKG File' to choose a single .pkg file</li>"
+            "<li><b>Batch Mode:</b> Click 'Select PKG Directory' to process all .pkg files in a folder</li>"
+            "<li><b>Output:</b> Specify custom output directory or use auto-generated paths</li>"
+            "</ul>"
+            "<br>"
+            "<p>Supports PKG files up to 20+ GB with optimized memory usage.</p>"
+        );
     }
 
 private:
     void setupUI() {
-        auto* layout = new QVBoxLayout(this);
-        layout->setSpacing(20);
-        layout->setContentsMargins(30, 30, 30, 30);
-
-        // Title
-        auto* titleLabel = new QLabel("ShadPS4Manager");
-        titleLabel->setObjectName("titleLabel");
-        titleLabel->setAlignment(Qt::AlignCenter);
-        layout->addWidget(titleLabel);
-
-        // Subtitle
-        auto* subtitleLabel = new QLabel("PS4 PKG File Extractor");
-        subtitleLabel->setObjectName("subtitleLabel");
-        subtitleLabel->setAlignment(Qt::AlignCenter);
-        layout->addWidget(subtitleLabel);
-
-        // File selection area
-        auto* fileFrame = new QWidget;
-        fileFrame->setObjectName("fileFrame");
-        auto* fileLayout = new QVBoxLayout(fileFrame);
+        auto* mainLayout = new QVBoxLayout(this);
         
-        selectFileButton = new QPushButton("📁 Select PKG File");
-        selectFileButton->setObjectName("primaryButton");
-        connect(selectFileButton, &QPushButton::clicked, this, &MainWindow::selectPkgFile);
+        // Header
+        auto* headerLabel = new QLabel("ShadPS4Manager - PKG File Extractor");
+        headerLabel->setObjectName("headerLabel");
+        mainLayout->addWidget(headerLabel);
         
+        // File selection section
+        auto* fileSection = new QVBoxLayout();
+        auto* fileRow = new QHBoxLayout();
+        
+        selectFileButton = new QPushButton("Select PKG File");
+        selectDirButton = new QPushButton("Select PKG Directory"); // Changed from output to input directory
         fileLabel = new QLabel("No file selected");
-        fileLabel->setObjectName("fileLabel");
         fileSizeLabel = new QLabel("");
-        fileSizeLabel->setObjectName("fileSizeLabel");
         
-        fileLayout->addWidget(selectFileButton);
-        fileLayout->addWidget(fileLabel);
-        fileLayout->addWidget(fileSizeLabel);
-        layout->addWidget(fileFrame);
-
-        // Output directory selection
-        auto* outputFrame = new QWidget;
-        outputFrame->setObjectName("outputFrame");
-        auto* outputLayout = new QVBoxLayout(outputFrame);
+        fileRow->addWidget(selectFileButton);
+        fileRow->addWidget(selectDirButton);
+        fileRow->addWidget(fileLabel, 1);
+        fileSection->addLayout(fileRow);
+        fileSection->addWidget(fileSizeLabel);
         
-        selectOutputButton = new QPushButton("📂 Select Output Directory (Optional)");
-        selectOutputButton->setObjectName("secondaryButton");
-        connect(selectOutputButton, &QPushButton::clicked, this, &MainWindow::selectOutputDir);
+        // Output directory section
+        auto* outputRow = new QHBoxLayout();
+        selectOutputDirButton = new QPushButton("Select Output Directory");
+        outputLabel = new QLabel("Output: (auto-selected)");
         
-        outputLabel = new QLabel("Output: Same directory as PKG file");
-        outputLabel->setObjectName("outputLabel");
+        outputRow->addWidget(selectOutputDirButton);
+        outputRow->addWidget(outputLabel, 1);
         
-        outputLayout->addWidget(selectOutputButton);
-        outputLayout->addWidget(outputLabel);
-        layout->addWidget(outputFrame);
-
         // Extract button
-        extractButton = new QPushButton("🚀 Extract PKG");
-        extractButton->setObjectName("extractButton");
+        extractButton = new QPushButton("Extract PKG");
         extractButton->setEnabled(false);
+        extractButton->setObjectName("extractButton");
+        
+        // Help/About button
+        auto* helpButton = new QPushButton("About");
+        helpButton->setObjectName("helpButton");
+        
+        auto* buttonRow = new QHBoxLayout();
+        buttonRow->addWidget(extractButton, 1);
+        buttonRow->addWidget(helpButton);
+        
+        // Progress section
+        auto* progressSection = new QVBoxLayout();
+        statusLabel = new QLabel("Ready to extract");
+        progressBar = new QProgressBar();
+        progressBar->setMinimum(0);
+        progressBar->setMaximum(100);
+        
+        progressSection->addWidget(statusLabel);
+        progressSection->addWidget(progressBar);
+        
+        // Output text area
+        outputText = new QTextEdit();
+        outputText->setMaximumHeight(200);
+        outputText->setReadOnly(true);
+        outputText->setPlaceholderText("Extraction progress will be shown here...");
+        
+        // Add all sections to main layout
+        mainLayout->addLayout(fileSection);
+        mainLayout->addLayout(outputRow);
+        mainLayout->addLayout(buttonRow);
+        mainLayout->addLayout(progressSection);
+        mainLayout->addWidget(outputText);
+        
+        // Connect signals
+        connect(selectFileButton, &QPushButton::clicked, this, &MainWindow::selectPkgFile);
+        connect(selectDirButton, &QPushButton::clicked, this, &MainWindow::selectPkgDirectory);
+        connect(selectOutputDirButton, &QPushButton::clicked, this, &MainWindow::selectOutputDir);
         connect(extractButton, &QPushButton::clicked, this, &MainWindow::startExtraction);
-        layout->addWidget(extractButton);
-
-        // Progress area
-        progressBar = new QProgressBar;
-        progressBar->setObjectName("progressBar");
-        progressBar->setVisible(false);
-        progressBar->setRange(0, 100);
-        progressBar->setFormat("%p% - %v/%m");
-        layout->addWidget(progressBar);
-
-        statusLabel = new QLabel;
-        statusLabel->setObjectName("statusLabel");
-        statusLabel->setVisible(false);
-        statusLabel->setAlignment(Qt::AlignCenter);
-        layout->addWidget(statusLabel);
-        
-        // Current file being processed
-        currentFileLabel = new QLabel;
-        currentFileLabel->setObjectName("currentFileLabel");
-        currentFileLabel->setVisible(false);
-        currentFileLabel->setAlignment(Qt::AlignCenter);
-        currentFileLabel->setWordWrap(true);
-        layout->addWidget(currentFileLabel);
-
-        // Log area
-        logTextEdit = new QTextEdit;
-        logTextEdit->setObjectName("logTextEdit");
-        logTextEdit->setVisible(false);
-        logTextEdit->setMaximumHeight(150);
-        layout->addWidget(logTextEdit);
-
-        // Info
-        auto* infoLabel = new QLabel("Supports PS4 PKG files. Large files may take several minutes to extract.");
-        infoLabel->setObjectName("infoLabel");
-        infoLabel->setWordWrap(true);
-        infoLabel->setAlignment(Qt::AlignCenter);
-        layout->addWidget(infoLabel);
-        
-        // Exit button
-        auto* buttonLayout = new QHBoxLayout;
-        buttonLayout->addStretch();
-        
-        exitButton = new QPushButton("❌ Exit Application");
-        exitButton->setObjectName("exitButton");
-        connect(exitButton, &QPushButton::clicked, this, &MainWindow::exitApplication);
-        
-        buttonLayout->addWidget(exitButton);
-        layout->addLayout(buttonLayout);
+        connect(helpButton, &QPushButton::clicked, this, &MainWindow::showAbout);
     }
-
+    
     void applyStyles() {
         setStyleSheet(R"(
             QWidget {
                 background-color: #2b2b2b;
                 color: #ffffff;
-                font-family: 'Segoe UI', 'Ubuntu', sans-serif;
+                font-family: 'Segoe UI', Arial, sans-serif;
             }
             
-            #titleLabel {
-                font-size: 32px;
+            #headerLabel {
+                font-size: 18px;
                 font-weight: bold;
                 color: #4CAF50;
-                margin: 10px 0px;
+                padding: 10px;
+                margin-bottom: 10px;
             }
             
-            #subtitleLabel {
-                font-size: 16px;
-                color: #cccccc;
-                margin-bottom: 20px;
-            }
-            
-            #fileFrame, #outputFrame {
-                background-color: #3a3a3a;
-                border-radius: 8px;
-                padding: 15px;
-                margin: 5px 0px;
-            }
-            
-            #primaryButton {
-                background-color: #4CAF50;
-                border: 2px solid #388E3C;
-                border-radius: 8px;
-                color: white;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 12px;
-                min-height: 20px;
-            }
-            
-            #primaryButton:hover {
-                background-color: #45a049;
-            }
-            
-            #primaryButton:pressed {
-                background-color: #2E7D32;
-            }
-            
-            #secondaryButton {
-                background-color: #2196F3;
-                border: 2px solid #1976D2;
-                border-radius: 8px;
-                color: white;
-                font-size: 14px;
-                font-weight: bold;
-                padding: 12px;
-                min-height: 20px;
-            }
-            
-            #secondaryButton:hover {
-                background-color: #1E88E5;
-            }
-            
-            #extractButton {
-                background-color: #FF9800;
-                border: 2px solid #F57C00;
-                border-radius: 8px;
-                color: white;
-                font-size: 16px;
-                font-weight: bold;
-                padding: 15px;
-                min-height: 25px;
-            }
-            
-            #extractButton:hover {
-                background-color: #FB8C00;
-            }
-            
-            #extractButton:disabled {
-                background-color: #555555;
-                border-color: #444444;
-                color: #888888;
-            }
-            
-            #fileLabel, #fileSizeLabel, #outputLabel {
-                font-size: 13px;
-                color: #ffffff;
-                margin: 5px 0px;
-            }
-            
-            #fileSizeLabel {
-                color: #4CAF50;
-                font-weight: bold;
-            }
-            
-            #statusLabel {
-                font-size: 14px;
-                color: #4CAF50;
-                font-weight: bold;
-                margin: 10px 0px;
-            }
-            
-            #progressBar {
+            QPushButton {
                 background-color: #404040;
                 border: 1px solid #555555;
                 border-radius: 4px;
+                padding: 8px 16px;
+                font-size: 14px;
+                min-width: 120px;
+            }
+            
+            QPushButton:hover {
+                background-color: #505050;
+                border-color: #777777;
+            }
+            
+            QPushButton:pressed {
+                background-color: #353535;
+            }
+            
+            QPushButton:disabled {
+                background-color: #303030;
+                color: #666666;
+                border-color: #444444;
+            }
+            
+            #extractButton {
+                background-color: #4CAF50;
+                border-color: #45a049;
+                font-weight: bold;
+                min-height: 35px;
+            }
+            
+            #extractButton:hover {
+                background-color: #45a049;
+            }
+            
+            #extractButton:disabled {
+                background-color: #2d5530;
+                color: #666666;
+            }
+            
+            #helpButton {
+                background-color: #2196F3;
+                border-color: #1976D2;
+                min-width: 80px;
+            }
+            
+            #helpButton:hover {
+                background-color: #1976D2;
+            }
+            
+            QLabel {
+                color: #cccccc;
+                font-size: 13px;
+            }
+            
+            QProgressBar {
+                border: 1px solid #555555;
+                border-radius: 4px;
+                background-color: #353535;
                 text-align: center;
-                color: white;
                 font-weight: bold;
             }
             
-            #progressBar::chunk {
+            QProgressBar::chunk {
                 background-color: #4CAF50;
                 border-radius: 3px;
             }
             
-            #logTextEdit {
+            QTextEdit {
                 background-color: #1e1e1e;
                 border: 1px solid #555555;
                 border-radius: 4px;
-                color: #ffffff;
-                font-family: 'Courier New', monospace;
-                font-size: 12px;
-            }
-            
-            #infoLabel {
-                font-size: 12px;
-                color: #888888;
-                font-style: italic;
-                margin-top: 10px;
-            }
-            
-            #currentFileLabel {
-                font-size: 11px;
-                color: #FFC107;
-                font-family: 'Courier New', monospace;
-                background-color: #3a3a3a;
-                border-radius: 4px;
                 padding: 8px;
-                margin: 5px 0px;
-            }
-            
-            #exitButton {
-                background-color: #f44336;
-                border: 2px solid #d32f2f;
-                border-radius: 6px;
-                color: white;
-                font-size: 12px;
-                font-weight: bold;
-                padding: 8px 16px;
-                min-width: 120px;
-            }
-            
-            #exitButton:hover {
-                background-color: #e53935;
-            }
-            
-            #exitButton:pressed {
-                background-color: #c62828;
+                font-family: 'Consolas', 'Monaco', monospace;
+                font-size: 11px;
+                color: #cccccc;
             }
         )");
     }
-
-    QPushButton *selectFileButton;
-    QPushButton *selectOutputButton;
-    QPushButton *extractButton;
-    QPushButton *exitButton;
-    QLabel *fileLabel;
-    QLabel *fileSizeLabel;
-    QLabel *outputLabel;
-    QLabel *statusLabel;
-    QLabel *currentFileLabel;
-    QProgressBar *progressBar;
-    QTextEdit *logTextEdit;
     
+    // UI components
+    QPushButton* selectFileButton;
+    QPushButton* selectDirButton;
+    QPushButton* selectOutputDirButton;
+    QPushButton* extractButton;
+    QLabel* fileLabel;
+    QLabel* fileSizeLabel;
+    QLabel* outputLabel;
+    QLabel* statusLabel;
+    QProgressBar* progressBar;
+    QTextEdit* outputText;
+    
+    // State
     QString selectedFile;
-    QString outputDir;
+    QString outputDirectory;
+    QStringList selectedPkgFiles; // For batch processing
+    bool isBatchMode;
+    int currentBatchIndex;
+    int totalBatchFiles;
 };
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     
     MainWindow window;

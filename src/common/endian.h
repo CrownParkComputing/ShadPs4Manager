@@ -11,9 +11,35 @@
 
 #include <bit>
 #include <concepts>
+#include <cstring>
 #include "common/types.h"
 
 namespace Common {
+
+// Custom byteswap implementation for compatibility
+template<typename T>
+constexpr T ByteSwap(T value) {
+    if constexpr (sizeof(T) == 1) {
+        return value;
+    } else if constexpr (sizeof(T) == 2) {
+        return ((value & 0xFF) << 8) | ((value >> 8) & 0xFF);
+    } else if constexpr (sizeof(T) == 4) {
+        return ((value & 0xFF) << 24) | 
+               ((value & 0xFF00) << 8) | 
+               ((value & 0xFF0000) >> 8) | 
+               ((value >> 24) & 0xFF);
+    } else if constexpr (sizeof(T) == 8) {
+        return ((value & 0xFF) << 56) |
+               ((value & 0xFF00) << 40) |
+               ((value & 0xFF0000) << 24) |
+               ((value & 0xFF000000) << 8) |
+               ((value & 0xFF00000000) >> 8) |
+               ((value & 0xFF0000000000) >> 24) |
+               ((value & 0xFF000000000000) >> 40) |
+               ((value >> 56) & 0xFF);
+    }
+    return value;
+}
 
 /**
  * Native endianness
@@ -29,7 +55,7 @@ public:
     }
 
     T Swap() const {
-        return std::byteswap(data);
+        return ByteSwap(data);
     }
 
     void FromRaw(const T& value) {
@@ -37,7 +63,7 @@ public:
     }
 
     void FromSwap(const T& value) {
-        data = std::byteswap(value);
+        data = ByteSwap(value);
     }
 
     operator const T() const {

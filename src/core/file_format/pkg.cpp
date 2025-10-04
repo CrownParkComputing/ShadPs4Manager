@@ -5,6 +5,7 @@
 #include "common/io_file.h"
 #include "core/file_format/pkg.h"
 #include "core/file_format/pkg_type.h"
+#include "core/file_format/pkg_optimized.h"
 
 static bool StreamingDecompressPFSC(std::span<char> compressed_data, std::span<char> decompressed_data, bool& stream_initialized, z_stream& stream) {
     if (!stream_initialized) {
@@ -191,10 +192,33 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
                 return false;
             }
 
-            std::vector<u8> data;
-            data.resize(entry.size);
-            file.ReadRaw<u8>(data.data(), entry.size);
-            out.WriteRaw<u8>(data.data(), entry.size);
+            // Use optimized extraction for large unnamed entries
+            if (entry.size > 50 * 1024 * 1024) {
+                auto progressCallback = [&](double progress) {
+                    if (progress_callback) {
+                        ExtractionProgress cb_progress{
+                            .current_file = "Entry " + std::to_string(entry.id),
+                            .total_files = static_cast<size_t>(n_files),
+                            .current_file_index = static_cast<size_t>(i),
+                            .file_progress = progress,
+                            .total_progress = (static_cast<double>(i) + progress) / n_files
+                        };
+                        progress_callback(cb_progress);
+                    }
+                };
+                
+                if (!PKGOptimized::ChunkedFileCopy(file, out, entry.size, 
+                                                  "Entry " + std::to_string(entry.id),
+                                                  progressCallback)) {
+                    failreason = "Failed to extract large unnamed entry";
+                    return false;
+                }
+            } else {
+                std::vector<u8> data;
+                data.resize(entry.size);
+                file.ReadRaw<u8>(data.data(), entry.size);
+                out.WriteRaw<u8>(data.data(), entry.size);
+            }
             out.Close();
 
             file.Seek(currentPos);
@@ -240,10 +264,34 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
             return false;
         }
 
-        std::vector<u8> data;
-        data.resize(entry.size);
-        file.ReadRaw<u8>(data.data(), entry.size);
-        out.WriteRaw<u8>(data.data(), entry.size);
+        // Use optimized extraction for large entries (>50MB)
+        if (entry.size > 50 * 1024 * 1024) {
+            auto progressCallback = [&](double progress) {
+                if (progress_callback) {
+                    ExtractionProgress cb_progress{
+                        .current_file = std::string(name),
+                        .total_files = static_cast<size_t>(n_files),
+                        .current_file_index = static_cast<size_t>(i),
+                        .file_progress = progress,
+                        .total_progress = (static_cast<double>(i) + progress) / n_files
+                    };
+                    progress_callback(cb_progress);
+                }
+            };
+            
+            if (!PKGOptimized::ExtractLargeEntry(file, entry, 
+                                                extract_path / "sce_sys" / name,
+                                                std::string(name), progressCallback)) {
+                failreason = "Failed to extract large entry: " + std::string(name);
+                return false;
+            }
+        } else {
+            // Use original method for smaller files
+            std::vector<u8> data;
+            data.resize(entry.size);
+            file.ReadRaw<u8>(data.data(), entry.size);
+            out.WriteRaw<u8>(data.data(), entry.size);
+        }
         out.Close();
 
         // Decrypt Np stuff and overwrite.
@@ -255,21 +303,45 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
                 return false;
             }
 
-            std::vector<u8> data;
-            data.resize(entry.size);
-            file.ReadRaw<u8>(data.data(), entry.size);
+            // For large entries, use optimized extraction
+            if (entry.size > 50 * 1024 * 1024) {
+                auto progressCallback = [&](double progress) {
+                    if (progress_callback) {
+                        ExtractionProgress cb_progress{
+                            .current_file = std::string(name),
+                            .total_files = static_cast<size_t>(n_files),
+                            .current_file_index = static_cast<size_t>(i),
+                            .file_progress = progress,
+                            .total_progress = (static_cast<double>(i) + progress) / n_files
+                        };
+                        progress_callback(cb_progress);
+                    }
+                };
+                
+                if (!PKGOptimized::ExtractLargeEntry(file, entry, 
+                                                    extract_path / "sce_sys" / name,
+                                                    std::string(name), progressCallback)) {
+                    failreason = "Failed to extract large encrypted entry: " + std::string(name);
+                    return false;
+                }
+            } else {
+                // Use original method for smaller files
+                std::vector<u8> data;
+                data.resize(entry.size);
+                file.ReadRaw<u8>(data.data(), entry.size);
 
-            std::span<u8> cipherNp(data.data(), entry.size);
-            std::array<u8, 64> concatenated_ivkey_dk3_;
-            std::memcpy(concatenated_ivkey_dk3_.data(), &entry, sizeof(entry));
-            std::memcpy(concatenated_ivkey_dk3_.data() + sizeof(entry), dk3_.data(), sizeof(dk3_));
-            PKG::crypto.ivKeyHASH256(concatenated_ivkey_dk3_, ivKey);
-            PKG::crypto.aesCbcCfb128DecryptEntry(ivKey, cipherNp, decNp);
+                std::span<u8> cipherNp(data.data(), entry.size);
+                std::array<u8, 64> concatenated_ivkey_dk3_;
+                std::memcpy(concatenated_ivkey_dk3_.data(), &entry, sizeof(entry));
+                std::memcpy(concatenated_ivkey_dk3_.data() + sizeof(entry), dk3_.data(), sizeof(dk3_));
+                PKG::crypto.ivKeyHASH256(concatenated_ivkey_dk3_, ivKey);
+                PKG::crypto.aesCbcCfb128DecryptEntry(ivKey, cipherNp, decNp);
 
-            Common::FS::IOFile out(extract_path / "sce_sys" / name,
-                                   Common::FS::FileAccessMode::Write);
-            out.Write(decNp);
-            out.Close();
+                Common::FS::IOFile out(extract_path / "sce_sys" / name,
+                                       Common::FS::FileAccessMode::Write);
+                out.Write(decNp);
+                out.Close();
+            }
         }
 
         file.Seek(currentPos);
@@ -503,63 +575,32 @@ bool PKG::ExtractFiles(const int index, std::string& failreason, const ProgressC
             if (progress_callback) {
                 progress.file_progress = static_cast<double>(j + 1) / nblocks;
                 progress.total_progress = (static_cast<double>(index) + progress.file_progress) / fsTable.size();
-                progress_callback(progress);
-            }
-
-            size_decompressed += 0x10000;
-
-            if (j < nblocks - 1) {
-                inflated.WriteRaw<u8>(decompressedData.data(), decompressedData.size());
-            } else {
-                const u32 write_size = decompressedData.size() - (size_decompressed - bsize);
-                inflated.WriteRaw<u8>(decompressedData.data(), write_size);
-            }
-        }
-
-        if (stream_initialized) {
-            inflateEnd(&stream);
-        }
-        pkgFile.Close();
-        inflated.Close();
-    }
-
-return true;
-
-            compressedData.resize(sectorSize);
-            std::memcpy(compressedData.data(), pfs_decrypted.data() + previousData, sectorSize);
-
-            if (sectorSize == 0x10000) { // Uncompressed data
-                std::memcpy(decompressedData.data(), compressedData.data(), 0x10000);
-            } else if (sectorSize < 0x10000) { // Compressed data
-                if (!StreamingDecompressPFSC(compressedData, decompressedData, stream_initialized, stream)) {
-                    failreason = "Decompression failed";
-                    if (stream_initialized) {
-                        inflateEnd(&stream);
-                    }
-                    return false;
+                
+                // Report progress more frequently for large files (every 1% or every block, whichever is more frequent)
+                static int lastReportedPercent = -1;
+                int currentPercent = static_cast<int>(progress.file_progress * 100);
+                if (currentPercent != lastReportedPercent || j % 10 == 0) {
+                    progress_callback(progress);
+                    lastReportedPercent = currentPercent;
                 }
             }
-            
-            if (progress_callback) {
-                progress.file_progress = static_cast<double>(j + 1) / nblocks;
-                progress.total_progress = (static_cast<double>(index) + progress.file_progress) / fsTable.size();
-                progress_callback(progress);
-            }
 
             size_decompressed += 0x10000;
 
             if (j < nblocks - 1) {
                 inflated.WriteRaw<u8>(decompressedData.data(), decompressedData.size());
             } else {
-                // This is to remove the zeros at the end of the file.
                 const u32 write_size = decompressedData.size() - (size_decompressed - bsize);
                 inflated.WriteRaw<u8>(decompressedData.data(), write_size);
             }
         }
+
         if (stream_initialized) {
             inflateEnd(&stream);
         }
         pkgFile.Close();
         inflated.Close();
     }
+
+    return true;
 }

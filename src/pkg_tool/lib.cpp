@@ -51,21 +51,21 @@ std::optional<std::string> ExtractPkg(const std::filesystem::path& pkg_path,
     uint32_t extracted = 0;
     for (int idx : list) {
         try {
-        std::string local_error;
-        if (!pkg.ExtractFiles(idx, local_error, [&](const ExtractionProgress& progress) {
-            if (progress_cb) {
-                ExtractionProgress progress{
-                    .current_file = "File " + std::to_string(extracted) + " of " + std::to_string(list.size()),
-                    .total_files = list.size(),
-                    .current_file_index = extracted,
-                    .file_progress = 1.0,
-                    .total_progress = static_cast<double>(extracted) / list.size()
-                };
-                progress_cb(progress);
+            std::string local_error;
+            if (!pkg.ExtractFiles(idx, local_error, [&](const ExtractionProgress& progress) {
+                if (progress_cb) {
+                    ExtractionProgress cb_progress{
+                        .current_file = "File " + std::to_string(extracted) + " of " + std::to_string(list.size()),
+                        .total_files = list.size(),
+                        .current_file_index = extracted,
+                        .file_progress = 1.0,
+                        .total_progress = static_cast<double>(extracted) / list.size()
+                    };
+                    progress_cb(cb_progress);
+                }
+            })) {
+                return local_error;
             }
-        }
-            return local_error;
-        }
         } catch (const std::exception& e) {
             return std::string("Failed extracting file index ") + std::to_string(idx) + ": " + e.what();
         } catch (...) {
@@ -74,7 +74,7 @@ std::optional<std::string> ExtractPkg(const std::filesystem::path& pkg_path,
         ++extracted;
         if (progress_cb) {
             ExtractionProgress progress{
-                .current_file = list[idx].filename().string(),
+                .current_file = "Completed file index " + std::to_string(idx),
                 .total_files = list.size(),
                 .current_file_index = extracted,
                 .file_progress = 1.0,
