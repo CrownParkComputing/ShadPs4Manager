@@ -2,7 +2,7 @@
 
 A powerful and user-friendly PS4 PKG file extractor with both GUI and command-line interfaces.
 
-![Build Status](https://github.com/jon-crownpark/ShadPs4Manager/workflows/Build%20ShadPs4Manager/badge.svg)
+![Build Status](https://github.com/CrownParkComputing/ShadPs4Manager/workflows/Build%20ShadPs4Manager/badge.svg)
 
 ## Features
 
@@ -33,7 +33,7 @@ The ShadPs4Manager GUI provides an intuitive interface for extracting PS4 PKG fi
 ## Installation
 
 ### Pre-built Binaries
-Download the latest release from the [Releases](https://github.com/jon-crownpark/ShadPs4Manager/releases) page.
+Download the latest release from the [Releases](https://github.com/CrownParkComputing/ShadPs4Manager/releases) page.
 
 ### Building from Source
 
@@ -47,7 +47,7 @@ Download the latest release from the [Releases](https://github.com/jon-crownpark
 
 ```bash
 # Clone the repository
-git clone https://github.com/jon-crownpark/ShadPs4Manager.git
+git clone https://github.com/CrownParkComputing/ShadPs4Manager.git
 cd ShadPs4Manager
 
 # Create build directory
@@ -158,7 +158,7 @@ Current file: USRDIR/EBOOT.BIN
 ### Development Setup
 
 ```bash
-git clone https://github.com/jon-crownpark/ShadPs4Manager.git
+git clone https://github.com/CrownParkComputing/ShadPs4Manager.git
 cd ShadPs4Manager
 
 # Build in debug mode

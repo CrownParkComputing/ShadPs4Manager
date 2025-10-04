@@ -12,7 +12,7 @@ constexpr char g_scm_rev[]         = "@GIT_REV@";
 constexpr char g_scm_branch[]      = "@GIT_BRANCH@";
 constexpr char g_scm_desc[]        = "@GIT_DESC@";
 constexpr char g_scm_remote_name[] = "origin";
-constexpr char g_scm_remote_url[]  = "https://github.com/jon-crownpark/ShadPs4Manager";
+constexpr char g_scm_remote_url[]  = "https://github.com/CrownParkComputing/ShadPs4Manager";
 constexpr char g_scm_date[]        = __DATE__ " " __TIME__;
 
 } // namespace Common
