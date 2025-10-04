@@ -48,7 +48,7 @@ jobs:
         cpack
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ShadPs4Manager-Linux-x64
         path: build/*.tar.gz
@@ -88,7 +88,7 @@ jobs:
         cpack
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ShadPs4Manager-Windows-x64
         path: build/*.zip
@@ -128,7 +128,7 @@ jobs:
         cpack
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ShadPs4Manager-macOS-x64
         path: build/*.tar.gz
@@ -140,7 +140,7 @@ jobs:
     
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
     
     - name: Release
       uses: softprops/action-gh-release@v1
