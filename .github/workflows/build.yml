@@ -1,0 +1,151 @@
+name: Build ShadPs4Manager
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Install Qt6
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.*'
+        target: desktop
+        modules: 'qtbase qttools'
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake ninja-build build-essential
+    
+    - name: Configure CMake
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja
+    
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+    
+    - name: Test CLI
+      run: |
+        cd ${{github.workspace}}/build/bin
+        ./shadps4-cli --help
+    
+    - name: Package
+      run: |
+        cd ${{github.workspace}}/build
+        cpack
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ShadPs4Manager-Linux-x64
+        path: build/*.tar.gz
+
+  build-windows:
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Install Qt6
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.*'
+        target: desktop
+        arch: win64_msvc2022_64
+        modules: 'qtbase qttools'
+    
+    - name: Setup MSVC
+      uses: microsoft/setup-msbuild@v1.3
+    
+    - name: Configure CMake
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -A x64
+    
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+    
+    - name: Test CLI
+      run: |
+        cd ${{github.workspace}}/build/bin/Release
+        ./shadps4-cli.exe --help
+    
+    - name: Package
+      run: |
+        cd ${{github.workspace}}/build
+        cpack
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ShadPs4Manager-Windows-x64
+        path: build/*.zip
+
+  build-macos:
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Install Qt6
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.*'
+        target: desktop
+        modules: 'qtbase qttools'
+    
+    - name: Install dependencies
+      run: |
+        brew install cmake ninja
+    
+    - name: Configure CMake
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja
+    
+    - name: Build
+      run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+    
+    - name: Test CLI
+      run: |
+        cd ${{github.workspace}}/build/bin
+        ./shadps4-cli --help
+    
+    - name: Package
+      run: |
+        cd ${{github.workspace}}/build
+        cpack
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ShadPs4Manager-macOS-x64
+        path: build/*.tar.gz
+
+  create-release:
+    needs: [build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          ShadPs4Manager-Linux-x64/*.tar.gz
+          ShadPs4Manager-Windows-x64/*.zip  
+          ShadPs4Manager-macOS-x64/*.tar.gz
