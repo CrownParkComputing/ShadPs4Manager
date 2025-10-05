@@ -1,25 +1,28 @@
 #!/bin/bash
 
-# ShadPs4Manager Build Script with Interactive Menu
-# This script provides convenient build, run, and clean operations for the ShadPs4Manager project
+# ShadPs4Manager Build Script
+# Usage: ./build.sh [major|minor|patch|clean] [linux|windows|all]
 
-set -e  # Exit on any error
+set -e
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Project configuration
+# Configuration
 PROJECT_NAME="ShadPs4Manager"
 BUILD_DIR="build"
-CMAKE_BUILD_TYPE="Release"
+DIST_DIR="dist"
+CMAKE_MIN_VERSION="3.16"
 
-# Function to print colored output
+# Version file location
+VERSION_FILE="VERSION"
+CMAKE_VERSION_FILE="CMakeLists.txt"
+
+# Print colored output
 print_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
@@ -36,18 +39,271 @@ print_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
-print_header() {
-    echo -e "${PURPLE}================================${NC}"
-    echo -e "${PURPLE}  ShadPs4Manager Build Menu${NC}"
-    echo -e "${PURPLE}================================${NC}"
+# Get current version from CMakeLists.txt
+get_current_version() {
+    if [ -f "$CMAKE_VERSION_FILE" ]; then
+        grep "project.*VERSION" "$CMAKE_VERSION_FILE" | sed -n 's/.*VERSION \([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p'
+    else
+        echo "1.0.0"
+    fi
 }
 
-# Function to show main menu
-show_menu() {
-    echo ""
-    echo "Please select an option:"
-    echo ""
-    echo -e "  ${CYAN}1)${NC} Build project"
+# Increment version based on type
+increment_version() {
+    local version=$1
+    local type=$2
+    
+    IFS='.' read -ra VERSION_PARTS <<< "$version"
+    local major=${VERSION_PARTS[0]}
+    local minor=${VERSION_PARTS[1]}
+    local patch=${VERSION_PARTS[2]}
+    
+    case $type in
+        "major")
+            major=$((major + 1))
+            minor=0
+            patch=0
+            ;;
+        "minor")
+            minor=$((minor + 1))
+            patch=0
+            ;;
+        "patch")
+            patch=$((patch + 1))
+            ;;
+        *)
+            print_error "Invalid version increment type: $type"
+            exit 1
+            ;;
+    esac
+    
+    echo "$major.$minor.$patch"
+}
+
+# Update version in CMakeLists.txt
+update_cmake_version() {
+    local new_version=$1
+    print_info "Updating CMakeLists.txt version to $new_version"
+    
+    sed -i "s/project(ShadPs4Manager VERSION [0-9]\+\.[0-9]\+\.[0-9]\+)/project(ShadPs4Manager VERSION $new_version)/" "$CMAKE_VERSION_FILE"
+    
+    # Also update the version file template
+    if [ -f "src/common/scm_rev.cpp.in" ]; then
+        sed -i "s/constexpr char g_version\\[\\]  = \"[0-9]\+\.[0-9]\+\.[0-9]\+\";/constexpr char g_version[]  = \"$new_version\";/" "src/common/scm_rev.cpp.in"
+    fi
+    
+    # Save version to VERSION file
+    echo "$new_version" > "$VERSION_FILE"
+}
+
+# Get git information
+get_git_info() {
+    if command -v git &> /dev/null && [ -d ".git" ]; then
+        GIT_REV=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+        GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+        GIT_DESC=$(git describe --always --dirty --tags 2>/dev/null || echo "unknown")
+        
+        export GIT_REV GIT_BRANCH GIT_DESC
+        print_info "Git info - Rev: $GIT_REV, Branch: $GIT_BRANCH, Desc: $GIT_DESC"
+    else
+        print_warning "Git not available, using default values"
+        export GIT_REV="unknown"
+        export GIT_BRANCH="unknown"
+        export GIT_DESC="unknown"
+    fi
+}
+
+# Check dependencies
+check_dependencies() {
+    print_info "Checking dependencies..."
+    
+    # Check CMake
+    if ! command -v cmake &> /dev/null; then
+        print_error "CMake is required but not installed"
+        exit 1
+    fi
+    
+    CMAKE_VERSION=$(cmake --version | head -n1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
+    print_info "Found CMake version: $CMAKE_VERSION"
+    
+    # Check Qt6 (for GUI)
+    if command -v qmake6 &> /dev/null || command -v qmake &> /dev/null; then
+        print_info "Qt6 found"
+    else
+        print_warning "Qt6 not found - GUI build may fail"
+    fi
+    
+    # Check compiler
+    if command -v g++ &> /dev/null; then
+        GCC_VERSION=$(g++ --version | head -n1)
+        print_info "Found compiler: $GCC_VERSION"
+    elif command -v clang++ &> /dev/null; then
+        CLANG_VERSION=$(clang++ --version | head -n1)
+        print_info "Found compiler: $CLANG_VERSION"
+    else
+        print_error "No C++ compiler found"
+        exit 1
+    fi
+}
+
+# Clean build directory
+clean_build() {
+    print_info "Cleaning build directory..."
+    if [ -d "$BUILD_DIR" ]; then
+        rm -rf "$BUILD_DIR"
+        print_success "Build directory cleaned"
+    fi
+    
+    if [ -d "$DIST_DIR" ]; then
+        rm -rf "$DIST_DIR"
+        print_success "Distribution directory cleaned"
+    fi
+}
+
+# Configure CMake for Linux
+configure_linux() {
+    print_info "Configuring for Linux build..."
+    
+    cmake -B "$BUILD_DIR" \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_COMPILER=g++ \
+        -DBUILD_GUI=ON \
+        -DGIT_REV="$GIT_REV" \
+        -DGIT_BRANCH="$GIT_BRANCH" \
+        -DGIT_DESC="$GIT_DESC" \
+        .
+}
+
+# Build for Linux
+build_linux() {
+    print_info "Building for Linux..."
+    
+    configure_linux
+    cmake --build "$BUILD_DIR" --config Release -j$(nproc)
+    
+    if [ $? -eq 0 ]; then
+        print_success "Linux build completed successfully"
+        
+        # Create distribution
+        create_linux_dist
+    else
+        print_error "Linux build failed"
+        exit 1
+    fi
+}
+
+# Create Linux distribution
+create_linux_dist() {
+    local version=$(get_current_version)
+    local dist_name="${PROJECT_NAME}-${version}-linux-x64"
+    local dist_path="${DIST_DIR}/${dist_name}"
+    
+    print_info "Creating Linux distribution: $dist_name"
+    
+    mkdir -p "$dist_path"
+    
+    # Copy binaries
+    if [ -f "${BUILD_DIR}/bin/shadps4-manager-gui" ]; then
+        cp "${BUILD_DIR}/bin/shadps4-manager-gui" "$dist_path/"
+        chmod +x "$dist_path/shadps4-manager-gui"
+    fi
+    
+    if [ -f "${BUILD_DIR}/bin/shadps4-cli" ]; then
+        cp "${BUILD_DIR}/bin/shadps4-cli" "$dist_path/"
+        chmod +x "$dist_path/shadps4-cli"
+    fi
+    
+    # Copy documentation
+    cp README.md "$dist_path/" 2>/dev/null || true
+    cp LICENSE "$dist_path/" 2>/dev/null || true
+    
+    # Create archive
+    cd "$DIST_DIR"
+    tar -czf "${dist_name}.tar.gz" "$dist_name"
+    cd ..
+    
+    print_success "Linux distribution created: ${DIST_DIR}/${dist_name}.tar.gz"
+}
+
+# Main script logic
+main() {
+    print_info "ShadPs4Manager Build Script"
+    print_info "Current directory: $(pwd)"
+    
+    # Parse arguments
+    local version_action=""
+    local build_target="linux"
+    
+    for arg in "$@"; do
+        case $arg in
+            major|minor|patch)
+                version_action="$arg"
+                ;;
+            linux|windows|all)
+                build_target="$arg"
+                ;;
+            clean)
+                clean_build
+                exit 0
+                ;;
+            help|--help|-h)
+                echo "Usage: $0 [major|minor|patch] [linux|windows|all] [clean]"
+                echo ""
+                echo "Version actions:"
+                echo "  major  - Increment major version (X.0.0)"
+                echo "  minor  - Increment minor version (x.X.0)"
+                echo "  patch  - Increment patch version (x.x.X)"
+                echo ""
+                echo "Build targets:"
+                echo "  linux   - Build for Linux (default)"
+                echo "  windows - Cross-compile for Windows"
+                echo "  all     - Build for all platforms"
+                echo ""
+                echo "Other actions:"
+                echo "  clean   - Clean build directories"
+                echo "  help    - Show this help"
+                exit 0
+                ;;
+        esac
+    done
+    
+    # Handle version increment
+    if [ -n "$version_action" ]; then
+        local current_version=$(get_current_version)
+        local new_version=$(increment_version "$current_version" "$version_action")
+        
+        print_info "Incrementing version: $current_version -> $new_version"
+        update_cmake_version "$new_version"
+        
+        # Commit version change if git is available
+        if command -v git &> /dev/null && [ -d ".git" ]; then
+            git add "$CMAKE_VERSION_FILE" "src/common/scm_rev.cpp.in" "$VERSION_FILE" 2>/dev/null || true
+            git commit -m "Bump version to $new_version" 2>/dev/null || true
+            git tag "v$new_version" 2>/dev/null || true
+            print_info "Version committed and tagged"
+        fi
+    fi
+    
+    # Setup
+    get_git_info
+    check_dependencies
+    
+    # Build based on target
+    case $build_target in
+        "linux")
+            build_linux
+            ;;
+        *)
+            print_error "Windows builds require GitHub Actions. Use 'linux' target for local builds."
+            exit 1
+            ;;
+    esac
+    
+    print_success "Build script completed successfully!"
+}
+
+# Run main function
+main "$@"
     echo -e "  ${CYAN}2)${NC} Build and run"
     echo -e "  ${CYAN}3)${NC} Clean build"
     echo -e "  ${CYAN}4)${NC} Rebuild everything"

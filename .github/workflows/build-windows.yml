@@ -1,0 +1,143 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: Set up MSVC
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.0'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2019_64'
+        cache: true
+        
+    - name: Set up CMake
+      uses: lukka/get-cmake@latest
+      
+    - name: Get current version
+      id: version
+      run: |
+        $VERSION = (Select-String -Path "CMakeLists.txt" -Pattern "project.*VERSION" | ForEach-Object { $_.Line -replace '.*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+).*', '$1' })
+        echo "version=$VERSION" >> $env:GITHUB_OUTPUT
+        echo "Current version: $VERSION"
+      shell: powershell
+      
+    - name: Configure CMake
+      run: |
+        cmake -B build `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DCMAKE_PREFIX_PATH="$env:RUNNER_WORKSPACE/Qt/6.5.0/msvc2019_64" `
+          -DBUILD_GUI=ON `
+          -DGIT_REV="${{ github.sha }}" `
+          -DGIT_BRANCH="${{ github.ref_name }}" `
+          -DGIT_DESC="${{ github.ref_name }}-${{ github.sha }}"
+      shell: powershell
+      
+    - name: Build project
+      run: |
+        cmake --build build --config Release -j
+      shell: powershell
+      
+    - name: Test binaries
+      run: |
+        if (Test-Path "build/bin/Release/shadps4-manager-gui.exe") {
+          Write-Host "GUI binary built successfully"
+          Get-ChildItem "build/bin/Release/shadps4-manager-gui.exe"
+        } else {
+          Write-Host "GUI binary not found"
+          exit 1
+        }
+        
+        if (Test-Path "build/bin/Release/shadps4-cli.exe") {
+          Write-Host "CLI binary built successfully"
+          Get-ChildItem "build/bin/Release/shadps4-cli.exe"
+        } else {
+          Write-Host "CLI binary not found - this may be expected"
+        }
+      shell: powershell
+      
+    - name: Collect Qt dependencies
+      run: |
+        # Create distribution directory
+        $VERSION = "${{ steps.version.outputs.version }}"
+        $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
+        New-Item -ItemType Directory -Path "dist/$DIST_NAME" -Force
+        
+        # Copy main executable
+        Copy-Item "build/bin/Release/shadps4-manager-gui.exe" "dist/$DIST_NAME/"
+        if (Test-Path "build/bin/Release/shadps4-cli.exe") {
+          Copy-Item "build/bin/Release/shadps4-cli.exe" "dist/$DIST_NAME/"
+        }
+        
+        # Use windeployqt to collect Qt dependencies
+        $QT_PATH = "$env:RUNNER_WORKSPACE/Qt/6.5.0/msvc2019_64"
+        & "$QT_PATH/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+        
+        # Copy documentation
+        if (Test-Path "README.md") { Copy-Item "README.md" "dist/$DIST_NAME/" }
+        if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$DIST_NAME/" }
+        
+        # Create install script
+        @"
+        @echo off
+        echo Installing ShadPs4Manager...
+        copy shadps4-manager-gui.exe "%ProgramFiles%\ShadPs4Manager\" 2>nul || (
+          mkdir "%ProgramFiles%\ShadPs4Manager" 2>nul
+          copy shadps4-manager-gui.exe "%ProgramFiles%\ShadPs4Manager\"
+        )
+        if exist shadps4-cli.exe copy shadps4-cli.exe "%ProgramFiles%\ShadPs4Manager\"
+        echo Installation complete.
+        pause
+        "@ | Out-File -FilePath "dist/$DIST_NAME/install.bat" -Encoding ascii
+        
+        echo "DIST_NAME=$DIST_NAME" >> $env:GITHUB_ENV
+      shell: powershell
+      
+    - name: Create ZIP archive
+      run: |
+        cd dist
+        $DIST_NAME = "${{ env.DIST_NAME }}"
+        if (-not $DIST_NAME) {
+          $VERSION = "${{ steps.version.outputs.version }}"
+          $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
+        }
+        Compress-Archive -Path "$DIST_NAME" -DestinationPath "$DIST_NAME.zip"
+        cd ..
+      shell: powershell
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: windows-build
+        path: |
+          dist/*.zip
+          build/bin/Release/shadps4-manager-gui.exe
+          build/bin/Release/shadps4-cli.exe
+        retention-days: 30
+        
+    - name: Upload release artifacts
+      if: startsWith(github.ref, 'refs/tags/v')
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-windows-x64
+        path: dist/*.zip
+        retention-days: 90
