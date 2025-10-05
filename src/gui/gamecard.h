@@ -101,7 +101,7 @@ private:
     QPushButton* m_deleteButton;
     QPushButton* m_refreshButton;
 
-    QHBoxLayout* m_mainLayout;
+    QVBoxLayout* m_mainLayout;
     QVBoxLayout* m_buttonLayout;
 
     // Network manager for image downloading

@@ -26,108 +26,122 @@ void GameCard::setupUI() {
     m_mainContainer = new QWidget(this);
     m_mainContainer->setObjectName("mainContainer");
 
-    // Main horizontal layout - cover and buttons directly adjacent
-    m_mainLayout = new QHBoxLayout(m_mainContainer);
-    m_mainLayout->setSpacing(0); // No spacing at all
-    m_mainLayout->setContentsMargins(0, 0, 0, 0); // No margins
+    // Main vertical layout - play button at top, cover in middle, info buttons at bottom
+    m_mainLayout = new QVBoxLayout(m_mainContainer);
+    m_mainLayout->setSpacing(8);
+    m_mainLayout->setContentsMargins(8, 8, 8, 8);
 
-    // Cover image (left side)
+    // Play/control buttons container (top center)
+    QWidget* playButtonContainer = new QWidget(m_mainContainer);
+    QHBoxLayout* playButtonLayout = new QHBoxLayout(playButtonContainer);
+    playButtonLayout->setContentsMargins(0, 0, 0, 0);
+    playButtonLayout->setSpacing(4);
+
+    // Create play/control buttons (larger, more prominent)
+    m_launchButton = new QPushButton(playButtonContainer);
+    m_launchButton->setObjectName("launchButton");
+    m_launchButton->setFixedSize(40, 28);
+    m_launchButton->setToolTip("Launch Game");
+    connect(m_launchButton, &QPushButton::clicked, this, &GameCard::onLaunchButtonClicked);
+
+    m_stopButton = new QPushButton(playButtonContainer);
+    m_stopButton->setObjectName("stopButton");
+    m_stopButton->setFixedSize(40, 28);
+    m_stopButton->setToolTip("Stop Game");
+    connect(m_stopButton, &QPushButton::clicked, this, &GameCard::onStopButtonClicked);
+
+    m_killButton = new QPushButton(playButtonContainer);
+    m_killButton->setObjectName("killButton");
+    m_killButton->setFixedSize(40, 28);
+    m_killButton->setToolTip("Force Kill Game");
+    m_killButton->setVisible(false); // Initially hidden
+    connect(m_killButton, &QPushButton::clicked, this, &GameCard::onKillButtonClicked);
+
+    // Center the play buttons
+    playButtonLayout->addStretch();
+    playButtonLayout->addWidget(m_launchButton);
+    playButtonLayout->addWidget(m_stopButton);
+    playButtonLayout->addWidget(m_killButton);
+    playButtonLayout->addStretch();
+
+    // Title label (above cover)
+    m_titleLabel = new QLabel(m_mainContainer);
+    m_titleLabel->setObjectName("titleLabel");
+    m_titleLabel->setWordWrap(true);
+    m_titleLabel->setMaximumHeight(40);
+    m_titleLabel->setAlignment(Qt::AlignCenter);
+
+    // Cover image (center)
     m_coverImage = new QLabel(m_mainContainer);
     m_coverImage->setObjectName("coverImage");
     m_coverImage->setMinimumSize(160, 200);
     m_coverImage->setMaximumSize(160, 200);
     m_coverImage->setAlignment(Qt::AlignCenter);
 
-    // Buttons container (right side - directly adjacent)
-    QWidget* buttonContainer = new QWidget(m_mainContainer);
-    QVBoxLayout* buttonLayout = new QVBoxLayout(buttonContainer);
-    buttonLayout->setSpacing(1);
-    buttonLayout->setContentsMargins(0, 0, 0, 0);
+    // Info buttons container (bottom - fit under cover width)
+    QWidget* infoButtonContainer = new QWidget(m_mainContainer);
+    QHBoxLayout* infoButtonLayout = new QHBoxLayout(infoButtonContainer);
+    infoButtonLayout->setContentsMargins(0, 0, 0, 0);
+    infoButtonLayout->setSpacing(2); // Reduced spacing to fit all icons
 
-    // Create icon-only buttons (smaller width, compact design)
-    m_launchButton = new QPushButton(buttonContainer);
-    m_launchButton->setObjectName("launchButton");
-    m_launchButton->setFixedSize(16, 24);
-    m_launchButton->setToolTip("Launch Game");
-    connect(m_launchButton, &QPushButton::clicked, this, &GameCard::onLaunchButtonClicked);
-
-    m_stopButton = new QPushButton(buttonContainer);
-    m_stopButton->setObjectName("stopButton");
-    m_stopButton->setFixedSize(16, 24);
-    m_stopButton->setToolTip("Stop Game");
-    connect(m_stopButton, &QPushButton::clicked, this, &GameCard::onStopButtonClicked);
-
-    m_killButton = new QPushButton(buttonContainer);
-    m_killButton->setObjectName("killButton");
-    m_killButton->setFixedSize(16, 24);
-    m_killButton->setToolTip("Force Kill Game");
-    m_killButton->setVisible(false); // Initially hidden
-    connect(m_killButton, &QPushButton::clicked, this, &GameCard::onKillButtonClicked);
-
-    m_settingsButton = new QPushButton(buttonContainer);
+    // Create small info buttons (11px wide to prevent cutoff)
+    m_settingsButton = new QPushButton(infoButtonContainer);
     m_settingsButton->setObjectName("settingsButton");
-    m_settingsButton->setFixedSize(16, 21);
+    m_settingsButton->setFixedSize(11, 21);
     m_settingsButton->setToolTip("Game Settings");
     connect(m_settingsButton, &QPushButton::clicked, this, &GameCard::onSettingsButtonClicked);
 
-    m_infoButton = new QPushButton(buttonContainer);
+    m_infoButton = new QPushButton(infoButtonContainer);
     m_infoButton->setObjectName("infoButton");
-    m_infoButton->setFixedSize(16, 21);
+    m_infoButton->setFixedSize(11, 21);
     m_infoButton->setToolTip("Game Details");
     connect(m_infoButton, &QPushButton::clicked, this, &GameCard::onInfoButtonClicked);
 
-    m_deleteButton = new QPushButton(buttonContainer);
+    m_deleteButton = new QPushButton(infoButtonContainer);
     m_deleteButton->setObjectName("deleteButton");
-    m_deleteButton->setFixedSize(16, 21);
+    m_deleteButton->setFixedSize(11, 21);
     m_deleteButton->setToolTip("Delete Game");
     connect(m_deleteButton, &QPushButton::clicked, this, &GameCard::onDeleteButtonClicked);
 
-    m_refreshButton = new QPushButton(buttonContainer);
+    m_refreshButton = new QPushButton(infoButtonContainer);
     m_refreshButton->setObjectName("refreshButton");
-    m_refreshButton->setFixedSize(16, 21);
+    m_refreshButton->setFixedSize(11, 21);
     m_refreshButton->setToolTip("Refresh IGDB Data");
     connect(m_refreshButton, &QPushButton::clicked, this, &GameCard::onRefreshButtonClicked);
 
-    buttonLayout->addWidget(m_launchButton);
-    buttonLayout->addWidget(m_stopButton);
-    buttonLayout->addWidget(m_killButton);
-    buttonLayout->addStretch();
-    buttonLayout->addWidget(m_infoButton);
-    buttonLayout->addWidget(m_settingsButton);
-    buttonLayout->addWidget(m_deleteButton);
-    buttonLayout->addWidget(m_refreshButton);
-    buttonLayout->addStretch();
+    // Add info buttons horizontally to fit under cover
+    infoButtonLayout->addWidget(m_settingsButton);
+    infoButtonLayout->addWidget(m_infoButton);
+    infoButtonLayout->addWidget(m_deleteButton);
+    infoButtonLayout->addWidget(m_refreshButton);
 
-    // Info panel (bottom)
-    QWidget* infoPanel = new QWidget(m_mainContainer);
-    QVBoxLayout* infoLayout = new QVBoxLayout(infoPanel);
-    infoLayout->setSpacing(2);
-    infoLayout->setContentsMargins(2, 2, 2, 2);
+    // Status info panel (just for status label)
+    QWidget* statusPanel = new QWidget(m_mainContainer);
+    QVBoxLayout* statusPanelLayout = new QVBoxLayout(statusPanel);
+    statusPanelLayout->setSpacing(2);
+    statusPanelLayout->setContentsMargins(2, 2, 2, 2);
 
-    m_titleLabel = new QLabel(infoPanel);
-    m_titleLabel->setObjectName("titleLabel");
-    m_titleLabel->setWordWrap(true);
-    m_titleLabel->setMaximumHeight(40);
-
-    m_statusLabel = new QLabel(infoPanel);
+    m_statusLabel = new QLabel(statusPanel);
     m_statusLabel->setObjectName("statusLabel");
     m_statusLabel->setVisible(false);
 
-    infoLayout->addWidget(m_titleLabel);
-    infoLayout->addWidget(m_statusLabel);
-    infoLayout->addStretch();
+    statusPanelLayout->addWidget(m_statusLabel);
+    statusPanelLayout->addStretch();
 
-    // Add to main layout: cover directly next to buttons, then info below
-    m_mainLayout->addWidget(m_coverImage, 0); // No stretching
-    m_mainLayout->addWidget(buttonContainer, 0); // No stretching
-    m_mainLayout->addWidget(infoPanel, 1); // Takes remaining space
+    // Add all components to main vertical layout
+    m_mainLayout->addWidget(playButtonContainer);
+    m_mainLayout->addWidget(m_titleLabel, 0, Qt::AlignCenter);
+    m_mainLayout->addWidget(m_coverImage, 0, Qt::AlignCenter);
+    m_mainLayout->addWidget(infoButtonContainer, 0, Qt::AlignCenter);
+    m_mainLayout->addWidget(statusPanel);
+    m_mainLayout->addStretch();
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->addWidget(m_mainContainer);
-    mainLayout->setContentsMargins(0, 0, 0, 0); // No outer margins
-    mainLayout->setSpacing(0); // No spacing
+    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setSpacing(0);
 
-    setFixedSize(320, 240); // Adjusted size for side-by-side layout
+    setFixedSize(180, 320); // Adjusted size for vertical layout
 }
 
 void GameCard::setupStyle() {
@@ -166,8 +180,8 @@ void GameCard::setupStyle() {
             border: none;
             border-radius: 8px;
             color: white;
-            max-width: 16px;
-            min-width: 16px;
+            font-size: 14px;
+            font-weight: bold;
         }
 
         #launchButton:hover {
@@ -179,42 +193,43 @@ void GameCard::setupStyle() {
             border: none;
             border-radius: 8px;
             color: white;
-            max-width: 16px;
-            min-width: 16px;
+            font-size: 14px;
+            font-weight: bold;
         }
 
         #stopButton:hover {
             background-color: #da190b;
         }
 
-        #settingsButton, #infoButton, #deleteButton {
-            background-color: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
+        #killButton {
+            background-color: #ff5722;
+            border: none;
+            border-radius: 8px;
             color: white;
-            max-width: 16px;
-            min-width: 16px;
+            font-size: 12px;
+            font-weight: bold;
         }
 
-        #settingsButton:hover, #infoButton:hover {
+        #killButton:hover {
+            background-color: #e64a19;
+        }
+
+        #settingsButton, #infoButton, #deleteButton, #refreshButton {
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            color: white;
+            font-size: 10px;
+            max-width: 11px;
+            min-width: 11px;
+        }
+
+        #settingsButton:hover, #infoButton:hover, #refreshButton:hover {
             background-color: rgba(255, 255, 255, 0.2);
         }
 
         #deleteButton:hover {
             background-color: #f44336;
-        }
-
-        #refreshButton {
-            background-color: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            color: white;
-            max-width: 16px;
-            min-width: 16px;
-        }
-
-        #refreshButton:hover {
-            background-color: rgba(255, 255, 255, 0.2);
         }
     )";
 
