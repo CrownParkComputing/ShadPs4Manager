@@ -1,0 +1,162 @@
+name: Test Builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_linux:
+        description: 'Test Linux build'
+        required: false
+        default: true
+        type: boolean
+      test_windows:
+        description: 'Test Windows build'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  test-linux:
+    if: github.event.inputs.test_linux == 'true'
+    runs-on: ubuntu-22.04
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up build environment
+      run: |
+        sudo apt update
+        sudo apt install -y \
+          cmake \
+          build-essential \
+          qt6-base-dev \
+          qt6-tools-dev \
+          qt6-tools-dev-tools \
+          libqt6core6 \
+          libqt6gui6 \
+          libqt6widgets6 \
+          libqt6network6 \
+          libgl1-mesa-dev \
+          libglu1-mesa-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev \
+          pkg-config \
+          ninja-build
+          
+    - name: Debug Qt6 installation
+      run: |
+        echo "=== Qt6 Package Info ==="
+        dpkg -l | grep -i qt6
+        echo ""
+        echo "=== Qt6 CMake Files ==="
+        find /usr -name "*Qt6*" -type d 2>/dev/null | head -20
+        echo ""
+        echo "=== CMake Module Path ==="
+        ls -la /usr/lib/x86_64-linux-gnu/cmake/ | grep -i qt
+        
+    - name: Test CMake Configuration
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_GUI=ON \
+          -DCMAKE_VERBOSE_MAKEFILE=ON
+          
+    - name: Build project
+      run: |
+        cmake --build build --config Release -j$(nproc)
+        
+    - name: Test binary
+      run: |
+        if [ -f "build/bin/shadps4-manager-gui" ]; then
+          echo "✅ GUI binary built successfully"
+          file build/bin/shadps4-manager-gui
+          ldd build/bin/shadps4-manager-gui
+        else
+          echo "❌ GUI binary not found"
+          ls -la build/bin/
+          exit 1
+        fi
+
+  test-windows:
+    if: github.event.inputs.test_windows == 'true'
+    runs-on: windows-2022
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up MSVC
+      uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Debug Qt6 installation attempt
+      run: |
+        Write-Host "=== Attempting Qt6 installation ==="
+        Write-Host "Available Qt versions:"
+        python -m pip install aqtinstall
+        python -m aqt list-qt windows desktop
+      shell: powershell
+      
+    - name: Install Qt6 (Method 1 - jurplel)
+      id: qt_install_1
+      continue-on-error: true
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.5.3'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2019_64'
+        modules: 'qtbase qttools'
+        cache: true
+        
+    - name: Install Qt6 (Method 2 - aqt directly)
+      if: steps.qt_install_1.outcome == 'failure'
+      run: |
+        python -m pip install aqtinstall
+        python -m aqt install-qt windows desktop 6.5.3 win64_msvc2019_64 --outputdir C:\Qt
+        echo "Qt6_DIR=C:\Qt\6.5.3\msvc2019_64" >> $env:GITHUB_ENV
+        echo "CMAKE_PREFIX_PATH=C:\Qt\6.5.3\msvc2019_64\lib\cmake\Qt6" >> $env:GITHUB_ENV
+      shell: powershell
+      
+    - name: Debug Qt6 location
+      run: |
+        Write-Host "=== Qt6 Environment Variables ==="
+        Write-Host "Qt6_DIR: $env:Qt6_DIR"
+        Write-Host "CMAKE_PREFIX_PATH: $env:CMAKE_PREFIX_PATH"
+        Write-Host ""
+        Write-Host "=== Qt6 Directory Contents ==="
+        if (Test-Path "C:\Qt") {
+          Get-ChildItem "C:\Qt" -Recurse -Depth 2
+        }
+        if ($env:Qt6_DIR -and (Test-Path $env:Qt6_DIR)) {
+          Write-Host "Qt6_DIR contents:"
+          Get-ChildItem $env:Qt6_DIR
+        }
+      shell: powershell
+      
+    - name: Test CMake Configuration
+      run: |
+        cmake -B build `
+          -DCMAKE_BUILD_TYPE=Release `
+          -DBUILD_GUI=ON `
+          -DCMAKE_VERBOSE_MAKEFILE=ON `
+          -DCMAKE_PREFIX_PATH="$env:CMAKE_PREFIX_PATH"
+      shell: powershell
+      
+    - name: Build project
+      run: |
+        cmake --build build --config Release -j
+      shell: powershell
+      
+    - name: Test binary
+      run: |
+        if (Test-Path "build/bin/Release/shadps4-manager-gui.exe") {
+          Write-Host "✅ GUI binary built successfully"
+          Get-ChildItem "build/bin/Release/shadps4-manager-gui.exe"
+        } else {
+          Write-Host "❌ GUI binary not found"
+          Get-ChildItem "build/bin/Release/" -ErrorAction SilentlyContinue
+          exit 1
+        }
+      shell: powershell

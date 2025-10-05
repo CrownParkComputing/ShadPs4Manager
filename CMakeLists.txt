@@ -86,10 +86,51 @@ endif()
 
 # GUI Application
 if(BUILD_GUI)
+    # Find OpenGL first (required for Qt6 on some systems)
+    find_package(OpenGL)
+    
+    # Try to find Qt6 with different methods
     find_package(Qt6 COMPONENTS Widgets Network QUIET)
+    
+    # If not found and CMAKE_PREFIX_PATH is set, try again
+    if(NOT Qt6Widgets_FOUND AND CMAKE_PREFIX_PATH)
+        message(STATUS "Retrying Qt6 search with CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
+        find_package(Qt6 COMPONENTS Widgets Network QUIET)
+    endif()
+    
+    # Try to find Qt6 in common locations if still not found
+    if(NOT Qt6Widgets_FOUND)
+        if(WIN32)
+            # Common Windows locations
+            set(QT_SEARCH_PATHS
+                "$ENV{Qt6_DIR}"
+                "$ENV{QTDIR}"
+                "C:/Qt/6.5.3/msvc2019_64"
+                "C:/Qt/6.5.2/msvc2019_64"
+                "C:/Qt/6.5.1/msvc2019_64"
+                "C:/Qt/6.5.0/msvc2019_64"
+            )
+        else()
+            # Common Linux locations
+            set(QT_SEARCH_PATHS
+                "/usr/lib/x86_64-linux-gnu/cmake/Qt6"
+                "/usr/lib64/cmake/Qt6"
+                "/usr/local/Qt/6.5.3/lib/cmake/Qt6"
+            )
+        endif()
+        
+        foreach(QT_PATH ${QT_SEARCH_PATHS})
+            if(EXISTS "${QT_PATH}" AND NOT Qt6Widgets_FOUND)
+                message(STATUS "Trying Qt6 path: ${QT_PATH}")
+                set(CMAKE_PREFIX_PATH "${QT_PATH};${CMAKE_PREFIX_PATH}")
+                find_package(Qt6 COMPONENTS Widgets Network QUIET)
+            endif()
+        endforeach()
+    endif()
     
     if(Qt6Widgets_FOUND)
         message(STATUS "Building ShadPs4Manager GUI (Qt6)")
+        message(STATUS "Qt6 Location: ${Qt6_DIR}")
         
         set(CMAKE_AUTOMOC ON)
         set(CMAKE_AUTORCC ON)
@@ -111,6 +152,12 @@ if(BUILD_GUI)
             Qt6::Network
             shadps4_manager_core
         )
+        
+        # Link OpenGL if found
+        if(OpenGL_FOUND)
+            target_link_libraries(shadps4-manager-gui PRIVATE ${OPENGL_LIBRARIES})
+            target_include_directories(shadps4-manager-gui PRIVATE ${OPENGL_INCLUDE_DIRS})
+        endif()
 
         target_include_directories(shadps4-manager-gui PRIVATE
             ${Qt6Widgets_INCLUDE_DIRS}
@@ -125,6 +172,9 @@ if(BUILD_GUI)
         
     else()
         message(WARNING "Qt6 not found; GUI application will not be built")
+        if(CMAKE_PREFIX_PATH)
+            message(STATUS "CMAKE_PREFIX_PATH was: ${CMAKE_PREFIX_PATH}")
+        endif()
     endif()
 endif()
 

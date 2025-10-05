@@ -24,10 +24,11 @@ jobs:
     - name: Install Qt
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.0'
+        version: '6.5.3'
         host: 'windows'
         target: 'desktop'
         arch: 'win64_msvc2019_64'
+        modules: 'qtbase qttools'
         cache: true
         
     - name: Set up CMake
@@ -45,7 +46,7 @@ jobs:
       run: |
         cmake -B build `
           -DCMAKE_BUILD_TYPE=Release `
-          -DCMAKE_PREFIX_PATH="$env:RUNNER_WORKSPACE/Qt/6.5.0/msvc2019_64" `
+          -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
           -DBUILD_GUI=ON `
           -DGIT_REV="${{ github.sha }}" `
           -DGIT_BRANCH="${{ github.ref_name }}" `
@@ -75,9 +76,8 @@ jobs:
         }
       shell: powershell
       
-    - name: Collect Qt dependencies
+    - name: Create distribution
       run: |
-        # Create distribution directory
         $VERSION = "${{ steps.version.outputs.version }}"
         $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
         New-Item -ItemType Directory -Path "dist/$DIST_NAME" -Force
@@ -89,8 +89,17 @@ jobs:
         }
         
         # Use windeployqt to collect Qt dependencies
-        $QT_PATH = "$env:RUNNER_WORKSPACE/Qt/6.5.0/msvc2019_64"
-        & "$QT_PATH/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+        if ($env:Qt6_DIR) {
+          & "$env:Qt6_DIR/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+        } else {
+          Write-Host "Warning: Qt6_DIR not set, trying to find windeployqt"
+          $windeployqt = Get-Command windeployqt.exe -ErrorAction SilentlyContinue
+          if ($windeployqt) {
+            & $windeployqt.Source --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+          } else {
+            Write-Host "Error: Could not find windeployqt.exe"
+          }
+        }
         
         # Copy documentation
         if (Test-Path "README.md") { Copy-Item "README.md" "dist/$DIST_NAME/" }
@@ -115,11 +124,8 @@ jobs:
     - name: Create ZIP archive
       run: |
         cd dist
-        $DIST_NAME = "${{ env.DIST_NAME }}"
-        if (-not $DIST_NAME) {
-          $VERSION = "${{ steps.version.outputs.version }}"
-          $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
-        }
+        $VERSION = "${{ steps.version.outputs.version }}"
+        $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
         Compress-Archive -Path "$DIST_NAME" -DestinationPath "$DIST_NAME.zip"
         cd ..
       shell: powershell

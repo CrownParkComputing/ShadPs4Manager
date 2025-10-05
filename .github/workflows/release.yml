@@ -80,6 +80,12 @@ jobs:
           libqt6gui6 \
           libqt6widgets6 \
           libqt6network6 \
+          libgl1-mesa-dev \
+          libglu1-mesa-dev \
+          libxrandr-dev \
+          libxinerama-dev \
+          libxcursor-dev \
+          libxi-dev \
           pkg-config \
           ninja-build
           
@@ -136,15 +142,16 @@ jobs:
     - name: Install Qt
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.0'
+        version: '6.5.3'
         host: 'windows'
         target: 'desktop'
         arch: 'win64_msvc2019_64'
+        modules: 'qtbase qttools'
         cache: true
         
     - name: Build
       run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=ON
+        cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DBUILD_GUI=ON
         cmake --build build --config Release -j
       shell: powershell
       
@@ -161,8 +168,7 @@ jobs:
         }
         
         # Use windeployqt
-        $QT_PATH = "$env:RUNNER_WORKSPACE/Qt/6.5.0/msvc2019_64"
-        & "$QT_PATH/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+        & "$env:Qt6_DIR/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
         
         # Copy documentation
         if (Test-Path "README.md") { Copy-Item "README.md" "dist/$DIST_NAME/" }
