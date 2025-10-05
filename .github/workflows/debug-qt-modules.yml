@@ -1,0 +1,19 @@
+name: Debug Qt6 Modules
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-qt:
+    runs-on: windows-2022
+    
+    steps:
+    - name: Check available Qt6 modules
+      run: |
+        python -m pip install aqtinstall
+        echo "=== Available Qt versions ==="
+        python -m aqt list-qt windows desktop
+        echo ""
+        echo "=== Available modules for 6.5.3 ==="
+        python -m aqt list-qt windows desktop --modules 6.5.3 win64_msvc2019_64
+      shell: powershell
