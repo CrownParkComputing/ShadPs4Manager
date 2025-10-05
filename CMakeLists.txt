@@ -86,7 +86,7 @@ endif()
 
 # GUI Application
 if(BUILD_GUI)
-    find_package(Qt6 COMPONENTS Widgets QUIET)
+    find_package(Qt6 COMPONENTS Widgets Network QUIET)
     
     if(Qt6Widgets_FOUND)
         message(STATUS "Building ShadPs4Manager GUI (Qt6)")
@@ -97,11 +97,23 @@ if(BUILD_GUI)
         
         add_executable(shadps4-manager-gui
             src/gui/working_gui.cpp
+            src/gui/settings.cpp
+            src/gui/settings_page.cpp
+            src/gui/game_library.cpp
+            src/gui/gamecard.cpp
+            src/gui/downloads_folder.cpp
+            src/gui/param_sfo.cpp
+            src/gui/igdbservice.cpp
         )
         
-        target_link_libraries(shadps4-manager-gui PRIVATE 
+        target_link_libraries(shadps4-manager-gui PRIVATE
             Qt6::Widgets
+            Qt6::Network
             shadps4_manager_core
+        )
+
+        target_include_directories(shadps4-manager-gui PRIVATE
+            ${Qt6Widgets_INCLUDE_DIRS}
         )
         
         # On Windows, set it as a GUI application

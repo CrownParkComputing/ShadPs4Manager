@@ -1,40 +1,32 @@
 # Build directories
 build/
-bin/
-lib/
-out/
+cmake-build-*/
 
 # CMake generated files
 CMakeCache.txt
 CMakeFiles/
-Makefile
 cmake_install.cmake
-install_manifest.txt
-CTestTestfile.cmake
+compile_commands.json
+Makefile
 
 # Qt generated files
-*.pro.user
-*.pro.user.*
+*.moc
 moc_*.cpp
 moc_*.h
 qrc_*.cpp
 ui_*.h
-*.qmlc
-*.jsc
-*_autogen/
+Makefile*
 
-# Visual Studio files
-.vs/
-*.vcxproj
-*.vcxproj.filters
-*.vcxproj.user
-*.sln
-*.suo
-*.user
+# Object files
+*.o
+*.obj
+*.so
+*.dll
+*.exe
+*.out
 
-# Xcode files
-*.xcodeproj/
-*.xcworkspace/
+# Executables
+shadps4-manager-gui
 
 # IDE files
 .vscode/
@@ -51,45 +43,19 @@ ui_*.h
 .Trashes
 ehthumbs.db
 Thumbs.db
-desktop.ini
-
-# Package files
-*.zip
-*.tar.gz
-*.deb
-*.rpm
-*.dmg
-
-# Log files
-*.log
 
 # Temporary files
 *.tmp
 *.temp
+*.log
 
-# Compiled Object files
-*.o
-*.obj
-*.elf
-*.lo
-*.slo
+# Backup files
+*.bak
+*.backup
 
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
+# External dependencies (if you want to exclude them)
+# external/
 
-# Compiled Static libraries
-*.a
-*.lib
-*.la
-
-# Executables
-*.exe
-*.out
-*.app
-
-# Test results
-Testing/
-CTestCostData.txt
-CTestConfiguration.ini
+# Installation directories
+/usr/local/bin/shadps4-manager-gui
+/usr/local/share/shadps4-manager/

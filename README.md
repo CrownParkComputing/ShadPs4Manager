@@ -1,215 +1,161 @@
 # ShadPs4Manager
 
-A powerful and user-friendly PS4 PKG file extractor with both GUI and command-line interfaces.
-
-![Build Status](https://github.com/CrownParkComputing/ShadPs4Manager/workflows/Build%20ShadPs4Manager/badge.svg)
+A modern GUI application for managing PS4 games, built with Qt6 and CMake.
 
 ## Features
 
-- 🎯 **Dual Interface**: Modern Qt6 GUI and efficient command-line tool
-- 📊 **Real-time Progress**: Live extraction progress with file-by-file tracking
-- ⚡ **High Performance**: Optimized extraction with streaming decompression
-- 🌍 **Cross-platform**: Windows, Linux, and macOS support
-- 📱 **User-friendly**: Intuitive interface with detailed progress feedback
-- 🔧 **Reliable**: Built on proven cryptographic libraries
+- **Game Library Management**: Browse and organize your PS4 game collection
+- **Game Cards View**: Modern card-based interface with game artwork
+- **Param.sfo Editor**: Edit PS4 game metadata directly
+- **PKG File Support**: Handle PS4 package files
+- **Dark Theme**: Modern dark UI for comfortable use
 
-## Screenshots
+## Prerequisites
 
-### GUI Application
-The ShadPs4Manager GUI provides an intuitive interface for extracting PS4 PKG files:
+Before building the project, ensure you have the following installed:
 
-- Real-time progress tracking
-- Current file extraction display
-- Extraction speed monitoring
-- Detailed logging with timestamps
-- Dark theme optimized for extended use
+### Required Dependencies
 
-### Progress Tracking
-- **File Progress**: Shows current file being extracted
-- **Speed Monitoring**: Real-time extraction speed in MB/s
-- **Size Tracking**: Total extracted size vs PKG file size
-- **Time Tracking**: Elapsed time and estimated completion
+- **CMake** (>= 3.16)
+- **Qt6** development libraries
+- **GCC/G++** compiler
+- **Make** build system
+- **pkg-config**
 
-## Installation
+### Installing Dependencies on Linux
 
-### Pre-built Binaries
-Download the latest release from the [Releases](https://github.com/CrownParkComputing/ShadPs4Manager/releases) page.
+#### Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install cmake qt6-base-dev qt6-tools-dev build-essential pkg-config
+```
 
-### Building from Source
+#### Fedora/CentOS:
+```bash
+sudo dnf install cmake qt6-qtbase-devel qt6-qttools-devel gcc-c++ make pkg-config
+```
 
-#### Prerequisites
-- **CMake** 3.16 or later
-- **Qt6** (for GUI application)
-- **C++20** compatible compiler
-- **Git** (for cloning)
+#### Arch Linux:
+```bash
+sudo pacman -S cmake qt6-base qt6-tools base-devel pkg-config
+```
 
-#### Build Instructions
+## Building the Project
+
+The project includes a convenient build script (`build.sh`) that handles all build operations:
+
+### Quick Start
 
 ```bash
-# Clone the repository
-git clone https://github.com/CrownParkComputing/ShadPs4Manager.git
-cd ShadPs4Manager
+# Interactive Menu Mode (Recommended)
+./build.sh
 
+# Build the project
+./build.sh build
+
+# Build and run the application
+./build.sh run
+
+# Clean and rebuild everything
+./build.sh rebuild
+
+# Show all available options
+./build.sh help
+```
+
+### Available Build Commands
+
+| Command | Description |
+|---------|-------------|
+| `./build.sh` | Build the project (default) |
+| `./build.sh build` | Build the project |
+| `./build.sh run` | Build and run the application |
+| `./build.sh clean` | Remove all build artifacts |
+| `./build.sh configure` | Configure CMake build system |
+| `./build.sh install` | Install the application system-wide |
+| `./build.sh rebuild` | Clean and rebuild everything |
+| `./build.sh help` | Show help information |
+
+### Manual Build (Alternative)
+
+If you prefer to build manually:
+
+```bash
 # Create build directory
 mkdir build && cd build
 
-# Configure (with GUI)
-cmake .. -DCMAKE_BUILD_TYPE=Release
+# Configure with CMake
+cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=ON ..
 
-# Configure (CLI only, no Qt6 required)
-cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_GUI=OFF
+# Build the project
+make -j$(nproc)
 
-# Build
-cmake --build . --config Release
-
-# Optional: Install
-cmake --install . --config Release
-```
-
-#### Platform-specific Notes
-
-**Linux:**
-```bash
-# Install Qt6 on Ubuntu/Debian
-sudo apt install qt6-base-dev qt6-tools-dev cmake build-essential
-
-# Install Qt6 on Fedora
-sudo dnf install qt6-qtbase-devel qt6-qttools-devel cmake gcc-c++
-
-# Install Qt6 on Arch Linux
-sudo pacman -S qt6-base qt6-tools cmake base-devel
-```
-
-**Windows:**
-- Install Visual Studio 2022 with C++ support
-- Install Qt6 from the official installer
-- Use CMake GUI or command line with Visual Studio generator
-
-**macOS:**
-```bash
-# Install dependencies via Homebrew
-brew install qt6 cmake ninja
+# Run the application
+./bin/shadps4-manager-gui
 ```
 
 ## Usage
 
-### GUI Application
+1. **Launch the Application**:
+   ```bash
+   ./build.sh run
+   ```
 
-1. Launch `shadps4-manager-gui`
-2. Click "Select PKG File" to choose your PS4 PKG file
-3. Optionally select an output directory (defaults to same location as PKG)
-4. Click "Extract PKG" to start extraction
-5. Monitor real-time progress with file names and extraction speed
+2. **Configure Settings**:
+   - Set your game library path
+   - Configure ShadPS4 executable location
+   - Adjust other preferences as needed
 
-### Command Line Interface
+3. **Game Library**:
+   - Browse your PS4 games in a modern card-based interface
+   - View game information and metadata
+   - Launch games directly
 
-```bash
-# Extract to same directory as PKG file
-./shadps4-cli /path/to/game.pkg
+4. **Param.sfo Editor**:
+   - Edit game metadata stored in param.sfo files
+   - Update title, version, and other game information
 
-# Extract to specific directory
-./shadps4-cli /path/to/game.pkg /path/to/output/directory
-
-# Show help
-./shadps4-cli --help
-```
-
-### Example Output
+## Project Structure
 
 ```
-=== ShadPS4Manager PKG Extraction ===
-PKG File: /home/user/Games/MyGame.pkg
-Output Directory: /home/user/Games/MyGame_extracted
-PKG Size: 14.2 GB
-
-Starting extraction...
-Extracted 45 files, 2.3 GB (Speed: 15.2 MB/s) (Elapsed: 02:15)
-Current file: USRDIR/EBOOT.BIN
-✅ Extraction completed successfully!
+ShadPs4Manager/
+├── src/
+│   ├── gui/           # GUI application source files
+│   ├── core/          # Core library functionality
+│   ├── pkg_tool/      # PKG file handling
+│   └── common/        # Shared utilities
+├── external/          # Third-party libraries
+├── build.sh           # Build script
+├── CMakeLists.txt     # CMake configuration
+└── README.md          # This file
 ```
-
-## Supported Formats
-
-- **PS4 PKG Files**: All standard PS4 PKG archives
-- **Compression**: PFSC compressed content
-- **Encryption**: Standard PS4 PKG encryption schemes
-
-## Technical Details
-
-### Dependencies
-- **cryptopp**: Cryptographic operations (RSA, AES, HMAC)
-- **zlib**: Decompression support
-- **Qt6**: GUI framework (optional)
-
-### Architecture
-- **Core Library**: Platform-independent extraction engine
-- **CLI Tool**: Lightweight command-line interface
-- **GUI Application**: Full-featured Qt6 interface
-- **Cross-platform**: CMake-based build system
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-### Development Setup
-
-```bash
-git clone https://github.com/CrownParkComputing/ShadPs4Manager.git
-cd ShadPs4Manager
-
-# Build in debug mode
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Debug
-cmake --build .
-
-# Run tests
-ctest
-```
-
-## License
-
-This project is licensed under the GPL-2.0 License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Built upon the foundations of PS4 reverse engineering research
-- Uses industry-standard cryptographic libraries
-- Inspired by the need for reliable PS4 content extraction tools
 
 ## Troubleshooting
 
 ### Common Issues
 
-**"CLI tool not found" error:**
-- Ensure the CLI tool is built and accessible
-- Check that both GUI and CLI are in the same directory
+1. **Qt6 not found**:
+   - Make sure Qt6 development packages are installed
+   - Check that `pkg-config --exists Qt6Widgets` returns successfully
 
-**Qt6 not found during build:**
-- Install Qt6 development packages for your system
-- Set Qt6_DIR environment variable if needed
-- Use `-DBUILD_GUI=OFF` to build CLI-only version
+2. **Build errors**:
+   - Run `./build.sh clean` to clean build artifacts
+   - Run `./build.sh rebuild` to rebuild from scratch
 
-**Extraction fails:**
-- Verify the PKG file is valid and not corrupted
-- Ensure sufficient disk space for extraction
-- Check write permissions in the output directory
+3. **Runtime issues**:
+   - Ensure ShadPS4 is properly installed and configured
+   - Check file permissions for game directories
 
 ### Getting Help
 
-- Open an issue on GitHub for bugs or feature requests
-- Check existing issues for similar problems
-- Provide detailed information including OS, Qt version, and error messages
+- Run `./build.sh help` for build script options
+- Check the [Issues](../../issues) page for known problems
+- Create a new issue if you encounter problems
 
-## Changelog
+## Contributing
 
-### Version 1.0.0
-- Initial release
-- Full PS4 PKG extraction support
-- Qt6 GUI with real-time progress tracking
-- Command-line interface
-- Cross-platform support (Windows, Linux, macOS)
-- GitHub Actions CI/CD pipeline
+Contributions are welcome! Please feel free to submit issues and pull requests.
+
+## License
+
+This project is licensed under the terms specified in the LICENSE file.
