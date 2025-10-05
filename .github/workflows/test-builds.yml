@@ -22,6 +22,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
       
     - name: Set up build environment
       run: |
@@ -41,7 +44,12 @@ jobs:
           libxrandr-dev \
           libxinerama-dev \
           libxcursor-dev \
-          libxi-dev \
+          libxi-dev
+          
+    - name: Configure external dependencies
+      run: |
+        cd external/zlib
+        ./configure \
           pkg-config \
           ninja-build
           
@@ -86,6 +94,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
       
     - name: Set up MSVC
       uses: microsoft/setup-msbuild@v1.3
@@ -132,6 +143,17 @@ jobs:
         if ($env:Qt6_DIR -and (Test-Path $env:Qt6_DIR)) {
           Write-Host "Qt6_DIR contents:"
           Get-ChildItem $env:Qt6_DIR
+        }
+      shell: powershell
+      
+    - name: Configure external dependencies
+      run: |
+        # For Windows, copy zconf.h.in to zconf.h if it doesn't exist
+        if (!(Test-Path "external/zlib/zconf.h")) {
+          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
+          Write-Host "Generated zconf.h from zconf.h.in"
+        } else {
+          Write-Host "zconf.h already exists"
         }
       shell: powershell
       

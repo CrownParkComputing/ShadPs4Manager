@@ -29,6 +29,7 @@ jobs:
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        submodules: recursive
         token: ${{ secrets.GITHUB_TOKEN }}
         
     - name: Configure Git
@@ -89,6 +90,11 @@ jobs:
           pkg-config \
           ninja-build
           
+    - name: Configure external dependencies
+      run: |
+        cd external/zlib
+        ./configure
+          
     - name: Build
       run: |
         cmake -B build \
@@ -148,6 +154,17 @@ jobs:
         arch: 'win64_msvc2019_64'
         modules: 'qt5compat'
         cache: true
+        
+    - name: Configure external dependencies
+      run: |
+        # For Windows, copy zconf.h.in to zconf.h if it doesn't exist
+        if (!(Test-Path "external/zlib/zconf.h")) {
+          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
+          Write-Host "Generated zconf.h from zconf.h.in"
+        } else {
+          Write-Host "zconf.h already exists"
+        }
+      shell: powershell
         
     - name: Build
       run: |
