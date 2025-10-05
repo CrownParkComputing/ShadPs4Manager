@@ -23,6 +23,8 @@ void IgdbService::setCredentials(const QString& clientId, const QString& clientS
 void IgdbService::searchGames(const QString& query) {
     QString token = getAccessToken();
     if (token.isEmpty()) {
+        // Store the query to retry after getting token
+        m_pendingGameName = query;
         requestAccessToken();
         return;
     }
@@ -152,7 +154,8 @@ void IgdbService::onTokenReceived() {
             if (gameName == "__TEST_CONNECTION__") {
                 performTestSearch();
             } else {
-                performGameSearch(gameName);
+                // Re-call searchGames now that we have a token
+                searchGames(gameName);
             }
         }
     }

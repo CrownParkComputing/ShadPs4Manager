@@ -18,6 +18,8 @@
 #include <QProcess>
 #include <QStandardPaths>
 #include <QString>
+#include <QDialog>
+#include <QFrame>
 #include <QDirIterator>
 #include <QApplication>
 #include <QPixmap>
@@ -25,6 +27,8 @@
 #include <QFrame>
 #include <QDialog>
 #include <QMouseEvent>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 
 #include "gamecard.h"
 #include "common_types.h"
@@ -63,10 +67,11 @@ private slots:
     void renameGame();
     void viewParamSfo();
     void onLaunchGame(const QString& gamePath);
+    void onKillGame(const QString& gamePath);
     void onViewSfo(const QString& gamePath);
     void onRenameGame(const QString& gamePath);
     void onDeleteGame(const QString& gamePath);
-    void onShowInfo(const QString& gamePath);
+    void onShowGameInfo(const GameEntry& gameEntry);
     void onRefreshIgdbData(const GameEntry& gameEntry);
     void performIgdbSearch(const GameEntry& gameEntry, const QString& searchQuery);
     void showIgdbSearchResults(const QList<IgdbGame>& games, const GameEntry& gameEntry);
@@ -91,6 +96,7 @@ private:
     qint64 calculateDirectorySize(const QString& path);
     void saveGameMetadata(const GameEntry& gameEntry);
     void loadGameMetadata(GameEntry& gameEntry);
+    QString formatFileSize(qint64 size);
 
     QScrollArea* scrollArea;
     QWidget* cardsContainer;

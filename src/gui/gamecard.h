@@ -8,6 +8,8 @@
 #include <QHBoxLayout>
 #include <QPixmap>
 #include <QString>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
 #include "common_types.h"
 
 struct GameEntry {
@@ -55,6 +57,7 @@ public:
 signals:
     void launchRequested(const GameEntry& game);
     void stopRequested(const GameEntry& game);
+    void killRequested(const GameEntry& game);
     void settingsRequested(const GameEntry& game);
     void infoRequested(const GameEntry& game);
     void deleteRequested(const GameEntry& game);
@@ -68,6 +71,7 @@ protected:
 private slots:
     void onLaunchButtonClicked();
     void onStopButtonClicked();
+    void onKillButtonClicked();
     void onSettingsButtonClicked();
     void onInfoButtonClicked();
     void onDeleteButtonClicked();
@@ -80,6 +84,7 @@ private:
     void loadCoverImage();
     void loadIgdbCoverImage();
     void createFallbackCover();
+    void downloadCoverImage(const QString& imageUrl);
 
     GameEntry m_game;
     GameLaunchState m_launchState;
@@ -90,6 +95,7 @@ private:
     QLabel* m_statusLabel;
     QPushButton* m_launchButton;
     QPushButton* m_stopButton;
+    QPushButton* m_killButton;
     QPushButton* m_settingsButton;
     QPushButton* m_infoButton;
     QPushButton* m_deleteButton;
@@ -98,7 +104,8 @@ private:
     QHBoxLayout* m_mainLayout;
     QVBoxLayout* m_buttonLayout;
 
-    // Network manager removed - using basic Qt6 Widgets only
+    // Network manager for image downloading
+    QNetworkAccessManager* m_networkManager;
 };
 
 #endif // GAMECARD_H

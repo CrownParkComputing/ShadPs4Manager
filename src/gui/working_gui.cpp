@@ -36,7 +36,61 @@ private slots:
     void refreshAllData() {
         gameLibrary->refreshLibrary();
         downloadsFolder->refreshDownloads();
-        settingsPage->refreshSettings();
+    }
+
+    void openSettings() {
+        // Create settings dialog
+        QDialog* settingsDialog = new QDialog(this);
+        settingsDialog->setWindowTitle("Settings");
+        settingsDialog->setModal(true);
+        settingsDialog->resize(600, 500);
+        
+        auto* dialogLayout = new QVBoxLayout(settingsDialog);
+        
+        // Create new settings page for the dialog
+        auto* settingsPageDialog = new SettingsPage();
+        dialogLayout->addWidget(settingsPageDialog);
+        
+        // Add close button
+        auto* buttonLayout = new QHBoxLayout();
+        buttonLayout->addStretch();
+        auto* closeButton = new QPushButton("Close");
+        closeButton->setObjectName("closeButton");
+        connect(closeButton, &QPushButton::clicked, settingsDialog, &QDialog::accept);
+        buttonLayout->addWidget(closeButton);
+        dialogLayout->addLayout(buttonLayout);
+        
+        // Connect settings changes
+        connect(settingsPageDialog, &SettingsPage::settingsChanged, this, &MainWindow::onSettingsChanged);
+        
+        settingsDialog->exec();
+        settingsDialog->deleteLater();
+    }
+
+    void openDownloads() {
+        // Create downloads dialog  
+        QDialog* downloadsDialog = new QDialog(this);
+        downloadsDialog->setWindowTitle("Downloads");
+        downloadsDialog->setModal(true);
+        downloadsDialog->resize(800, 600);
+        
+        auto* dialogLayout = new QVBoxLayout(downloadsDialog);
+        
+        // Create new downloads page for the dialog
+        auto* downloadsPageDialog = new DownloadsFolder();
+        dialogLayout->addWidget(downloadsPageDialog);
+        
+        // Add close button
+        auto* buttonLayout = new QHBoxLayout();
+        buttonLayout->addStretch();
+        auto* closeButton = new QPushButton("Close");
+        closeButton->setObjectName("closeButton");
+        connect(closeButton, &QPushButton::clicked, downloadsDialog, &QDialog::accept);
+        buttonLayout->addWidget(closeButton);
+        dialogLayout->addLayout(buttonLayout);
+        
+        downloadsDialog->exec();
+        downloadsDialog->deleteLater();
     }
 
     void onSettingsChanged() {
@@ -48,40 +102,49 @@ private:
     void setupUI() {
         auto* mainLayout = new QVBoxLayout(this);
 
-        // Header
+        // Header with menu buttons
         auto* headerLayout = new QHBoxLayout();
         auto* titleLabel = new QLabel("ShadPs4 Manager");
         titleLabel->setObjectName("mainTitle");
         
-        auto* refreshButton = new QPushButton("Refresh All");
+        // Menu buttons
+        auto* menuLayout = new QHBoxLayout();
+        
+        auto* downloadsButton = new QPushButton("Downloads");
+        downloadsButton->setObjectName("menuButton");
+        downloadsButton->setToolTip("Open Downloads folder manager");
+        
+        auto* settingsButton = new QPushButton("Settings");
+        settingsButton->setObjectName("menuButton");
+        settingsButton->setToolTip("Open Settings");
+        
+        auto* refreshButton = new QPushButton("Refresh");
         refreshButton->setObjectName("refreshButton");
-        refreshButton->setToolTip("Refresh all data in all tabs");
+        refreshButton->setToolTip("Refresh game library");
+        
+        menuLayout->addWidget(downloadsButton);
+        menuLayout->addWidget(settingsButton);
+        menuLayout->addWidget(refreshButton);
         
         headerLayout->addWidget(titleLabel);
         headerLayout->addStretch();
-        headerLayout->addWidget(refreshButton);
+        headerLayout->addLayout(menuLayout);
         
         mainLayout->addLayout(headerLayout);
 
-        // Tab widget
-        tabWidget = new QTabWidget();
-        
-        // Game Library tab
+        // Main content - Game Library (no tabs)
         gameLibrary = new GameLibrary();
-        tabWidget->addTab(gameLibrary, "Game Library");
+        mainLayout->addWidget(gameLibrary);
         
-        // Downloads tab  
+        // Initialize downloads folder for dialogs (not displayed in main window)
         downloadsFolder = new DownloadsFolder();
-        tabWidget->addTab(downloadsFolder, "Downloads");
+        downloadsFolder->setParent(this);
+        downloadsFolder->hide(); // Keep hidden, only used for dialog creation
         
-        // Settings tab
-        settingsPage = new SettingsPage();
-        tabWidget->addTab(settingsPage, "Settings");
-        
-        mainLayout->addWidget(tabWidget);
-        
-        // Connect the refresh button
+        // Connect buttons
         connect(refreshButton, &QPushButton::clicked, this, &MainWindow::refreshAllData);
+        connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
+        connect(downloadsButton, &QPushButton::clicked, this, &MainWindow::openDownloads);
     }
 
     void applyStyles() {
@@ -117,45 +180,48 @@ private:
                 background-color: #3d8b40;
             }
 
-            QTabWidget::pane {
-                border: 1px solid #555555;
-                background-color: #353535;
-            }
-
-            QTabBar::tab {
-                background-color: #404040;
-                color: #ffffff;
+            #menuButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
                 padding: 8px 16px;
-                margin-right: 2px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
+                margin-left: 5px;
             }
 
-            QTabBar::tab:selected {
+            #menuButton:hover {
+                background-color: #0b7dda;
+            }
+
+            #menuButton:pressed {
+                background-color: #0969da;
+            }
+
+            #closeButton {
                 background-color: #4CAF50;
-                color: #ffffff;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-size: 12px;
+                font-weight: bold;
             }
 
-            QTabBar::tab:hover {
-                background-color: #505050;
-            }
-
-            QTabBar::tab:!selected {
-                margin-top: 2px;
+            #closeButton:hover {
+                background-color: #45a049;
             }
         )");
     }
 
     void connectSignals() {
-        // Connect settings changes to refresh library
-        connect(settingsPage, &SettingsPage::settingsChanged, this, &MainWindow::onSettingsChanged);
+        // Settings changes will be connected per-dialog in openSettings()
     }
 
 private:
-    QTabWidget* tabWidget;
     GameLibrary* gameLibrary;
-    DownloadsFolder* downloadsFolder;
-    SettingsPage* settingsPage;
+    DownloadsFolder* downloadsFolder; // Keep for dialog creation
 };
 
 int main(int argc, char* argv[]) {

@@ -9,11 +9,13 @@
 #include <QBrush>
 #include <QLinearGradient>
 #include <QPainter>
+#include <QRegularExpression>
 
 GameCard::GameCard(const GameEntry& game, QWidget* parent)
     : QWidget(parent)
     , m_game(game)
     , m_launchState(GameLaunchState::Idle)
+    , m_networkManager(nullptr)
 {
     setupUI();
     setupStyle();
@@ -24,90 +26,106 @@ void GameCard::setupUI() {
     m_mainContainer = new QWidget(this);
     m_mainContainer->setObjectName("mainContainer");
 
-    // Main horizontal layout for image and buttons side by side
+    // Main horizontal layout - cover and buttons directly adjacent
     m_mainLayout = new QHBoxLayout(m_mainContainer);
+    m_mainLayout->setSpacing(0); // No spacing at all
+    m_mainLayout->setContentsMargins(0, 0, 0, 0); // No margins
 
-    // Left side - game image and info
-    QWidget* leftPanel = new QWidget(m_mainContainer);
-    QVBoxLayout* leftLayout = new QVBoxLayout(leftPanel);
-
-    m_coverImage = new QLabel(leftPanel);
+    // Cover image (left side)
+    m_coverImage = new QLabel(m_mainContainer);
     m_coverImage->setObjectName("coverImage");
     m_coverImage->setMinimumSize(160, 200);
     m_coverImage->setMaximumSize(160, 200);
     m_coverImage->setAlignment(Qt::AlignCenter);
 
-    m_titleLabel = new QLabel(leftPanel);
+    // Buttons container (right side - directly adjacent)
+    QWidget* buttonContainer = new QWidget(m_mainContainer);
+    QVBoxLayout* buttonLayout = new QVBoxLayout(buttonContainer);
+    buttonLayout->setSpacing(1);
+    buttonLayout->setContentsMargins(0, 0, 0, 0);
+
+    // Create icon-only buttons (smaller width, compact design)
+    m_launchButton = new QPushButton(buttonContainer);
+    m_launchButton->setObjectName("launchButton");
+    m_launchButton->setFixedSize(16, 24);
+    m_launchButton->setToolTip("Launch Game");
+    connect(m_launchButton, &QPushButton::clicked, this, &GameCard::onLaunchButtonClicked);
+
+    m_stopButton = new QPushButton(buttonContainer);
+    m_stopButton->setObjectName("stopButton");
+    m_stopButton->setFixedSize(16, 24);
+    m_stopButton->setToolTip("Stop Game");
+    connect(m_stopButton, &QPushButton::clicked, this, &GameCard::onStopButtonClicked);
+
+    m_killButton = new QPushButton(buttonContainer);
+    m_killButton->setObjectName("killButton");
+    m_killButton->setFixedSize(16, 24);
+    m_killButton->setToolTip("Force Kill Game");
+    m_killButton->setVisible(false); // Initially hidden
+    connect(m_killButton, &QPushButton::clicked, this, &GameCard::onKillButtonClicked);
+
+    m_settingsButton = new QPushButton(buttonContainer);
+    m_settingsButton->setObjectName("settingsButton");
+    m_settingsButton->setFixedSize(16, 21);
+    m_settingsButton->setToolTip("Game Settings");
+    connect(m_settingsButton, &QPushButton::clicked, this, &GameCard::onSettingsButtonClicked);
+
+    m_infoButton = new QPushButton(buttonContainer);
+    m_infoButton->setObjectName("infoButton");
+    m_infoButton->setFixedSize(16, 21);
+    m_infoButton->setToolTip("Game Details");
+    connect(m_infoButton, &QPushButton::clicked, this, &GameCard::onInfoButtonClicked);
+
+    m_deleteButton = new QPushButton(buttonContainer);
+    m_deleteButton->setObjectName("deleteButton");
+    m_deleteButton->setFixedSize(16, 21);
+    m_deleteButton->setToolTip("Delete Game");
+    connect(m_deleteButton, &QPushButton::clicked, this, &GameCard::onDeleteButtonClicked);
+
+    m_refreshButton = new QPushButton(buttonContainer);
+    m_refreshButton->setObjectName("refreshButton");
+    m_refreshButton->setFixedSize(16, 21);
+    m_refreshButton->setToolTip("Refresh IGDB Data");
+    connect(m_refreshButton, &QPushButton::clicked, this, &GameCard::onRefreshButtonClicked);
+
+    buttonLayout->addWidget(m_launchButton);
+    buttonLayout->addWidget(m_stopButton);
+    buttonLayout->addWidget(m_killButton);
+    buttonLayout->addStretch();
+    buttonLayout->addWidget(m_infoButton);
+    buttonLayout->addWidget(m_settingsButton);
+    buttonLayout->addWidget(m_deleteButton);
+    buttonLayout->addWidget(m_refreshButton);
+    buttonLayout->addStretch();
+
+    // Info panel (bottom)
+    QWidget* infoPanel = new QWidget(m_mainContainer);
+    QVBoxLayout* infoLayout = new QVBoxLayout(infoPanel);
+    infoLayout->setSpacing(2);
+    infoLayout->setContentsMargins(2, 2, 2, 2);
+
+    m_titleLabel = new QLabel(infoPanel);
     m_titleLabel->setObjectName("titleLabel");
     m_titleLabel->setWordWrap(true);
     m_titleLabel->setMaximumHeight(40);
 
-    m_statusLabel = new QLabel(leftPanel);
+    m_statusLabel = new QLabel(infoPanel);
     m_statusLabel->setObjectName("statusLabel");
     m_statusLabel->setVisible(false);
 
-    leftLayout->addWidget(m_coverImage);
-    leftLayout->addWidget(m_titleLabel);
-    leftLayout->addWidget(m_statusLabel);
-    leftLayout->addStretch();
+    infoLayout->addWidget(m_titleLabel);
+    infoLayout->addWidget(m_statusLabel);
+    infoLayout->addStretch();
 
-    // Right side - buttons
-    QWidget* rightPanel = new QWidget(m_mainContainer);
-    QVBoxLayout* rightLayout = new QVBoxLayout(rightPanel);
-
-    // Create icon-only buttons (50% width reduction, 50% height increase)
-    m_launchButton = new QPushButton(rightPanel);
-    m_launchButton->setObjectName("launchButton");
-    m_launchButton->setFixedSize(8, 24);
-    m_launchButton->setToolTip("Launch Game");
-    connect(m_launchButton, &QPushButton::clicked, this, &GameCard::onLaunchButtonClicked);
-
-    m_stopButton = new QPushButton(rightPanel);
-    m_stopButton->setObjectName("stopButton");
-    m_stopButton->setFixedSize(8, 24);
-    m_stopButton->setToolTip("Stop Game");
-    connect(m_stopButton, &QPushButton::clicked, this, &GameCard::onStopButtonClicked);
-
-    m_settingsButton = new QPushButton(rightPanel);
-    m_settingsButton->setObjectName("settingsButton");
-    m_settingsButton->setFixedSize(7, 21);
-    m_settingsButton->setToolTip("Game Settings");
-    connect(m_settingsButton, &QPushButton::clicked, this, &GameCard::onSettingsButtonClicked);
-
-    m_infoButton = new QPushButton(rightPanel);
-    m_infoButton->setObjectName("infoButton");
-    m_infoButton->setFixedSize(7, 21);
-    m_infoButton->setToolTip("Game Details");
-    connect(m_infoButton, &QPushButton::clicked, this, &GameCard::onInfoButtonClicked);
-
-    m_deleteButton = new QPushButton(rightPanel);
-    m_deleteButton->setObjectName("deleteButton");
-    m_deleteButton->setFixedSize(7, 21);
-    m_deleteButton->setToolTip("Delete Game");
-    connect(m_deleteButton, &QPushButton::clicked, this, &GameCard::onDeleteButtonClicked);
-
-    m_refreshButton = new QPushButton(rightPanel);
-    m_refreshButton->setObjectName("refreshButton");
-    m_refreshButton->setFixedSize(7, 21);
-    m_refreshButton->setToolTip("Refresh IGDB Data");
-    connect(m_refreshButton, &QPushButton::clicked, this, &GameCard::onRefreshButtonClicked);
-
-    rightLayout->addWidget(m_launchButton);
-    rightLayout->addWidget(m_stopButton);
-    rightLayout->addStretch();
-    rightLayout->addWidget(m_infoButton);
-    rightLayout->addWidget(m_settingsButton);
-    rightLayout->addWidget(m_deleteButton);
-    rightLayout->addWidget(m_refreshButton);
-    rightLayout->addStretch();
-
-    // Add panels to main layout
-    m_mainLayout->addWidget(leftPanel, 1);
-    m_mainLayout->addWidget(rightPanel, 0);
+    // Add to main layout: cover directly next to buttons, then info below
+    m_mainLayout->addWidget(m_coverImage, 0); // No stretching
+    m_mainLayout->addWidget(buttonContainer, 0); // No stretching
+    m_mainLayout->addWidget(infoPanel, 1); // Takes remaining space
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->addWidget(m_mainContainer);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
+    mainLayout->setContentsMargins(0, 0, 0, 0); // No outer margins
+    mainLayout->setSpacing(0); // No spacing
 
     setFixedSize(320, 240); // Adjusted size for side-by-side layout
 }
@@ -146,8 +164,10 @@ void GameCard::setupStyle() {
         #launchButton {
             background-color: #4CAF50;
             border: none;
-            border-radius: 16px;
+            border-radius: 8px;
             color: white;
+            max-width: 16px;
+            min-width: 16px;
         }
 
         #launchButton:hover {
@@ -157,8 +177,10 @@ void GameCard::setupStyle() {
         #stopButton {
             background-color: #f44336;
             border: none;
-            border-radius: 16px;
+            border-radius: 8px;
             color: white;
+            max-width: 16px;
+            min-width: 16px;
         }
 
         #stopButton:hover {
@@ -168,8 +190,10 @@ void GameCard::setupStyle() {
         #settingsButton, #infoButton, #deleteButton {
             background-color: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 12px;
+            border-radius: 6px;
             color: white;
+            max-width: 16px;
+            min-width: 16px;
         }
 
         #settingsButton:hover, #infoButton:hover {
@@ -183,8 +207,10 @@ void GameCard::setupStyle() {
         #refreshButton {
             background-color: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 12px;
+            border-radius: 6px;
             color: white;
+            max-width: 16px;
+            min-width: 16px;
         }
 
         #refreshButton:hover {
@@ -206,6 +232,7 @@ void GameCard::updateUI() {
             m_launchButton->setText("▶");
             m_launchButton->setVisible(true);
             m_stopButton->setVisible(false);
+            m_killButton->setVisible(false);
             break;
 
         case GameLaunchState::Launching:
@@ -213,6 +240,7 @@ void GameCard::updateUI() {
             m_launchButton->setText("⟳");
             m_launchButton->setVisible(true);
             m_stopButton->setVisible(false);
+            m_killButton->setVisible(false);
             break;
 
         case GameLaunchState::Running:
@@ -220,6 +248,9 @@ void GameCard::updateUI() {
             m_stopButton->setVisible(true);
             m_stopButton->setToolTip("Stop Game");
             m_stopButton->setText("⏹");
+            m_killButton->setVisible(true);
+            m_killButton->setToolTip("Force Kill Game");
+            m_killButton->setText("💀");
             break;
 
         case GameLaunchState::Failed:
@@ -227,6 +258,7 @@ void GameCard::updateUI() {
             m_launchButton->setText("⚠");
             m_launchButton->setVisible(true);
             m_stopButton->setVisible(false);
+            m_killButton->setVisible(false);
             break;
     }
 
@@ -258,13 +290,24 @@ void GameCard::updateUI() {
 void GameCard::loadCoverImage() {
     QString imagePath;
 
-    // Priority: local file > IGDB URL > fallback
+    // Priority: local file > cached file > IGDB URL > fallback
     if (!m_game.gameData.localCoverPath.isEmpty() && QFile::exists(m_game.gameData.localCoverPath)) {
         imagePath = m_game.gameData.localCoverPath;
-    } else if (!m_game.gameData.coverUrl.isEmpty()) {
-        // Try to load IGDB cover image
-        loadIgdbCoverImage();
-        return; // Exit early since we're handling IGDB loading asynchronously
+    } else {
+        // Check for cached cover in game directory with unique filename
+        QString gameDir = QFileInfo(m_game.gameData.path).absolutePath();
+        QString gameName = QFileInfo(m_game.gameData.path).baseName();
+        QString safeGameName = gameName;
+        safeGameName.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+        QString cacheFile = gameDir + "/" + safeGameName + "_cover_cache.jpg";
+        if (QFile::exists(cacheFile)) {
+            imagePath = cacheFile;
+            m_game.gameData.localCoverPath = cacheFile; // Update the local path
+        } else if (!m_game.gameData.coverUrl.isEmpty()) {
+            // Try to load IGDB cover image
+            loadIgdbCoverImage();
+            return; // Exit early since we're handling IGDB loading asynchronously
+        }
     }
 
     if (!imagePath.isEmpty()) {
@@ -345,6 +388,10 @@ void GameCard::onStopButtonClicked() {
     emit stopRequested(m_game);
 }
 
+void GameCard::onKillButtonClicked() {
+    emit killRequested(m_game);
+}
+
 void GameCard::onSettingsButtonClicked() {
     emit settingsRequested(m_game);
 }
@@ -385,26 +432,80 @@ void GameCard::updateScreenshots(const QList<QPair<int, QString>>& screenshots) 
 }
 
 void GameCard::setIgdbCoverImage(const QString& imageUrl) {
-    // For now, we'll show a placeholder indicating IGDB image is available
-    // In a full implementation, this would load the actual image from the URL
+    if (imageUrl.isEmpty()) {
+        createFallbackCover();
+        return;
+    }
 
-    // Create a placeholder that indicates IGDB image availability
-    QPixmap igdbPlaceholder(160, 200);
-    igdbPlaceholder.fill(QColor("#1a4a1a")); // Dark green to indicate IGDB
+    // Store the URL
+    m_game.gameData.coverUrl = imageUrl;
+    
+    // Show loading placeholder
+    QPixmap loadingPlaceholder(160, 200);
+    loadingPlaceholder.fill(QColor("#1a4a1a")); // Dark green to indicate loading
 
-    QPainter painter(&igdbPlaceholder);
+    QPainter painter(&loadingPlaceholder);
     painter.setPen(QPen(Qt::white, 2));
     QFont font = painter.font();
-    font.setPixelSize(14);
+    font.setPixelSize(12);
     font.setBold(true);
     painter.setFont(font);
 
-    // Show that IGDB image is available
-    QString displayText = "IGDB\nCover";
-    painter.drawText(igdbPlaceholder.rect(), Qt::AlignCenter, displayText);
+    QString displayText = "Loading\nIGDB Cover...";
+    painter.drawText(loadingPlaceholder.rect(), Qt::AlignCenter, displayText);
 
-    m_coverImage->setPixmap(igdbPlaceholder);
+    m_coverImage->setPixmap(loadingPlaceholder);
 
-    // Store the URL for potential future loading
-    m_game.gameData.coverUrl = imageUrl;
+    // Start downloading the actual image
+    downloadCoverImage(imageUrl);
+}
+
+void GameCard::downloadCoverImage(const QString& imageUrl) {
+    if (imageUrl.isEmpty()) return;
+
+    // Create network manager if it doesn't exist
+    if (!m_networkManager) {
+        m_networkManager = new QNetworkAccessManager(this);
+    }
+
+    // Convert IGDB URL to high resolution
+    QString highResUrl = imageUrl;
+    if (highResUrl.contains("thumb")) {
+        highResUrl.replace("thumb", "cover_big");
+    }
+    
+    QUrl url(highResUrl);
+    QNetworkRequest request{url};
+    request.setHeader(QNetworkRequest::UserAgentHeader, "ShadPs4Manager/1.0");
+    
+    QNetworkReply* reply = m_networkManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        
+        if (reply->error() == QNetworkReply::NoError) {
+            QByteArray imageData = reply->readAll();
+            QPixmap pixmap;
+            if (pixmap.loadFromData(imageData)) {
+                // Scale and set the image
+                QPixmap scaledPixmap = pixmap.scaled(160, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+                m_coverImage->setPixmap(scaledPixmap);
+                
+                // Cache the image locally with unique filename
+                QString gameDir = QFileInfo(m_game.gameData.path).absolutePath();
+                QString gameName = QFileInfo(m_game.gameData.path).baseName();
+                QString safeGameName = gameName;
+                safeGameName.replace(QRegularExpression("[^a-zA-Z0-9_-]"), "_");
+                QString cacheFile = gameDir + "/" + safeGameName + "_cover_cache.jpg";
+                pixmap.save(cacheFile, "JPG", 85);
+                
+                // Update local cover path
+                m_game.gameData.localCoverPath = cacheFile;
+            } else {
+                createFallbackCover();
+            }
+        } else {
+            // Download failed, show fallback
+            createFallbackCover();
+        }
+    });
 }

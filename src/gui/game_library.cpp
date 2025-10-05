@@ -19,19 +19,19 @@ GameLibrary::GameLibrary(QWidget* parent) : QWidget(parent) {
     // Connect IGDB signals using lambdas to pass the current game entry context
     connect(m_igdbService, &IgdbService::searchResultsReady, this, [this](const QList<IgdbGame>& games) {
         showIgdbSearchResults(games, m_currentSearchGameEntry);
-    });
+    }, Qt::QueuedConnection);
     
     connect(m_igdbService, &IgdbService::gameDetailsReady, this, [this](const IgdbGame& game) {
         onGameDetailsReady(game, m_currentSearchGameEntry);
-    });
+    }, Qt::QueuedConnection);
     
     connect(m_igdbService, &IgdbService::coverImageReady, this, [this](int coverId, const QString& url) {
         onCoverImageReady(coverId, url, m_currentSearchGameEntry);
-    });
+    }, Qt::QueuedConnection);
     
     connect(m_igdbService, &IgdbService::screenshotsReady, this, [this](const QList<QPair<int, QString>>& screenshots) {
         onScreenshotsReady(screenshots, m_currentSearchGameEntry);
-    });
+    }, Qt::QueuedConnection);
     
     setupUI();
     applyStyles();
@@ -209,7 +209,10 @@ void GameLibrary::loadGames() {
                 onViewSfo(gameEntry.gameData.path);
             });
             connect(gameCard, &GameCard::infoRequested, this, [this, gameEntry]() {
-                onShowInfo(gameEntry.gameData.path);
+                onShowGameInfo(gameEntry);
+            });
+            connect(gameCard, &GameCard::killRequested, this, [this, gameEntry]() {
+                onKillGame(gameEntry.gameData.path);
             });
             connect(gameCard, &GameCard::deleteRequested, this, [this, gameEntry]() {
                 onDeleteGame(gameEntry.gameData.path);
@@ -248,16 +251,8 @@ void GameLibrary::arrangeGameCards() {
         delete item;
     }
 
-    // Calculate grid dimensions based on available space (accounting for GameCard size)
-    int cardsPerRow = 2; // Default for GameCard (320px wide)
-    QWidget* viewport = scrollArea->viewport();
-    if (viewport) {
-        int viewportWidth = viewport->width();
-        if (viewportWidth > 0) {
-            // Each card is 320px wide + 8px spacing
-            cardsPerRow = qMax(1, (viewportWidth - 20) / 328); // 20px for margins, 320px card width + 8px spacing
-        }
-    }
+    // Set fixed 4 cards per row layout
+    int cardsPerRow = 4;
 
     // Arrange cards in grid
     for (int i = 0; i < gameCards.size(); ++i) {
@@ -619,22 +614,27 @@ void GameLibrary::showIgdbSearchResults(const QList<IgdbGame>& games, const Game
         resultsLayout->addWidget(gameWidget);
 
         // Connect button signals
-        connect(selectButton, &QPushButton::clicked, resultsDialog, [this, resultsDialog, game]() {
+        connect(selectButton, &QPushButton::clicked, resultsDialog, [this, resultsDialog, game, gameEntry]() {
+            // Store the game data locally before closing dialog
+            IgdbGame selectedGame = game;
+            GameEntry targetEntry = gameEntry;
+            
             resultsDialog->accept();
             
-            // Store the current search context and fetch full game details
-            m_currentSearchGameEntry.gameData.igdbId = game.id;
+            // Update the current search context with the selected game
+            m_currentSearchGameEntry = targetEntry;
+            m_currentSearchGameEntry.gameData.igdbId = selectedGame.id;
             
             // Update status and fetch detailed information
-            statusLabel->setText(QString("Fetching details for: %1...").arg(game.name));
+            statusLabel->setText(QString("Fetching details for: %1...").arg(selectedGame.name));
             
             // Fetch game details, cover, and screenshots
-            m_igdbService->fetchGameDetails(game.id);
-            if (game.cover > 0) {
-                m_igdbService->fetchCoverImage(game.cover);
+            m_igdbService->fetchGameDetails(selectedGame.id);
+            if (selectedGame.cover > 0) {
+                m_igdbService->fetchCoverImage(selectedGame.cover);
             }
-            if (!game.screenshots.isEmpty()) {
-                m_igdbService->fetchScreenshots(game.screenshots);
+            if (!selectedGame.screenshots.isEmpty()) {
+                m_igdbService->fetchScreenshots(selectedGame.screenshots);
             }
         });
 
@@ -714,6 +714,22 @@ void GameLibrary::onLaunchGame(const QString& gamePath) {
             QString("Failed to launch game with ShadPS4:\n%1").arg(process->errorString()));
     } else {
         statusLabel->setText("Game launched successfully");
+    }
+}
+
+void GameLibrary::onKillGame(const QString& gamePath) {
+    // Kill all ShadPS4 processes (force terminate)
+    QProcess killProcess;
+    killProcess.start("pkill", QStringList() << "-f" << "shadps4");
+    killProcess.waitForFinished(3000); // Wait up to 3 seconds
+    
+    if (killProcess.exitCode() == 0) {
+        statusLabel->setText("Game processes terminated");
+        QMessageBox::information(this, "Game Killed", 
+            "All ShadPS4 processes have been forcefully terminated.");
+    } else {
+        QMessageBox::warning(this, "Kill Failed", 
+            "Failed to kill game processes. You may need to terminate them manually.");
     }
 }
 
@@ -928,16 +944,305 @@ void GameLibrary::onDeleteGame(const QString& gamePath) {
     }
 }
 
-void GameLibrary::onShowInfo(const QString& gamePath) {
-    QMessageBox::information(this, "Game Information",
-        QString("Game Path: %1\n\nMore detailed game information would be displayed here.").arg(gamePath));
+void GameLibrary::onShowGameInfo(const GameEntry& gameEntry) {
+    // Create a detailed info dialog
+    QDialog* infoDialog = new QDialog(this);
+    infoDialog->setWindowTitle(QString("Game Information - %1").arg(gameEntry.gameData.name));
+    infoDialog->setModal(true);
+    infoDialog->resize(600, 500);
+
+    auto* mainLayout = new QVBoxLayout(infoDialog);
+
+    // Create scroll area for content
+    QScrollArea* scrollArea = new QScrollArea();
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    mainLayout->addWidget(scrollArea);
+
+    QWidget* contentWidget = new QWidget();
+    scrollArea->setWidget(contentWidget);
+    auto* contentLayout = new QVBoxLayout(contentWidget);
+
+    // Game cover and basic info section
+    auto* headerSection = new QHBoxLayout();
+    
+    // Cover image
+    QLabel* coverLabel = new QLabel();
+    coverLabel->setFixedSize(160, 200);
+    coverLabel->setAlignment(Qt::AlignCenter);
+    coverLabel->setStyleSheet("border: 1px solid #555; border-radius: 4px;");
+    
+    // Load cover image - prioritize URL if available, fallback to local
+    if (!gameEntry.gameData.coverUrl.isEmpty()) {
+        coverLabel->setText("Loading...");
+        coverLabel->setStyleSheet("border: 1px solid #555; border-radius: 4px; background-color: #2a2a2a; color: #888;");
+        
+        // Create network manager and load image from URL
+        auto* networkManager = new QNetworkAccessManager(infoDialog);
+        QNetworkRequest request(gameEntry.gameData.coverUrl);
+        QNetworkReply* reply = networkManager->get(request);
+        
+        connect(reply, &QNetworkReply::finished, [reply, coverLabel]() {
+            if (reply->error() == QNetworkReply::NoError) {
+                QByteArray imageData = reply->readAll();
+                QPixmap pixmap;
+                if (pixmap.loadFromData(imageData)) {
+                    coverLabel->setPixmap(pixmap.scaled(160, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                } else {
+                    coverLabel->setText("Failed to load");
+                }
+            } else {
+                coverLabel->setText("Load error");
+            }
+            reply->deleteLater();
+        });
+    } else if (!gameEntry.gameData.localCoverPath.isEmpty() && QFile::exists(gameEntry.gameData.localCoverPath)) {
+        QPixmap pixmap(gameEntry.gameData.localCoverPath);
+        if (!pixmap.isNull()) {
+            coverLabel->setPixmap(pixmap.scaled(160, 200, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        } else {
+            coverLabel->setText("No Cover");
+            coverLabel->setStyleSheet("border: 1px solid #555; border-radius: 4px; background-color: #2a2a2a; color: #888;");
+        }
+    } else {
+        coverLabel->setText("No Cover");
+        coverLabel->setStyleSheet("border: 1px solid #555; border-radius: 4px; background-color: #2a2a2a; color: #888;");
+    }
+    
+    headerSection->addWidget(coverLabel);
+    
+    // Basic info
+    auto* basicInfoLayout = new QVBoxLayout();
+    
+    // Title
+    auto* titleLabel = new QLabel(gameEntry.gameData.name);
+    titleLabel->setStyleSheet("font-size: 18px; font-weight: bold; color: #4CAF50; margin-bottom: 10px;");
+    titleLabel->setWordWrap(true);
+    basicInfoLayout->addWidget(titleLabel);
+    
+    // Path info
+    auto* pathLabel = new QLabel(QString("Path: %1").arg(gameEntry.gameData.path));
+    pathLabel->setStyleSheet("color: #cccccc; margin-bottom: 5px;");
+    pathLabel->setWordWrap(true);
+    basicInfoLayout->addWidget(pathLabel);
+    
+    // Compressed status
+    auto* compressionLabel = new QLabel(gameEntry.gameData.isCompressed ? "Status: Compressed" : "Status: Extracted");
+    compressionLabel->setStyleSheet("color: #cccccc; margin-bottom: 10px;");
+    basicInfoLayout->addWidget(compressionLabel);
+    
+    headerSection->addLayout(basicInfoLayout);
+    headerSection->addStretch();
+    contentLayout->addLayout(headerSection);
+    
+    // Separator
+    auto* separator1 = new QFrame();
+    separator1->setFrameShape(QFrame::HLine);
+    separator1->setStyleSheet("color: #555; margin: 10px 0;");
+    contentLayout->addWidget(separator1);
+    
+    // IGDB Information section
+    auto* igdbSection = new QVBoxLayout();
+    auto* igdbTitleLabel = new QLabel("IGDB Information");
+    igdbTitleLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #4CAF50; margin-bottom: 8px;");
+    contentLayout->addWidget(igdbTitleLabel);
+    
+    if (gameEntry.gameData.igdbId > 0) {
+        // IGDB ID
+        auto* igdbIdLabel = new QLabel(QString("IGDB ID: %1").arg(gameEntry.gameData.igdbId));
+        igdbIdLabel->setStyleSheet("color: #cccccc; margin-bottom: 5px;");
+        contentLayout->addWidget(igdbIdLabel);
+        
+        // Description
+        if (!gameEntry.gameData.description.isEmpty()) {
+            auto* descLabel = new QLabel("Description:");
+            descLabel->setStyleSheet("color: #4CAF50; font-weight: bold; margin-top: 10px; margin-bottom: 5px;");
+            contentLayout->addWidget(descLabel);
+            
+            auto* descText = new QLabel(gameEntry.gameData.description);
+            descText->setStyleSheet("color: #cccccc; margin-bottom: 10px; padding: 8px; background-color: #2a2a2a; border-radius: 4px;");
+            descText->setWordWrap(true);
+            contentLayout->addWidget(descText);
+        }
+        
+        // Screenshots with links
+        if (!gameEntry.gameData.screenshotUrls.isEmpty()) {
+            auto* screenshotsTitleLabel = new QLabel(QString("Screenshots (%1):").arg(gameEntry.gameData.screenshotUrls.size()));
+            screenshotsTitleLabel->setStyleSheet("color: #4CAF50; font-weight: bold; margin-top: 10px; margin-bottom: 5px;");
+            contentLayout->addWidget(screenshotsTitleLabel);
+            
+            // Create a container for screenshot thumbnails
+            auto* screenshotsContainer = new QWidget();
+            auto* screenshotsLayout = new QVBoxLayout(screenshotsContainer);
+            screenshotsLayout->setContentsMargins(8, 8, 8, 8);
+            screenshotsLayout->setSpacing(8);
+            
+            // Create horizontal layout for screenshot thumbnails
+            auto* thumbnailsLayout = new QHBoxLayout();
+            thumbnailsLayout->setSpacing(8);
+            
+            auto* networkManager = new QNetworkAccessManager(infoDialog);
+            
+            for (int i = 0; i < gameEntry.gameData.screenshotUrls.size() && i < 3; ++i) {
+                const QString& url = gameEntry.gameData.screenshotUrls[i];
+                
+                // Create thumbnail container
+                auto* thumbnailContainer = new QVBoxLayout();
+                
+                // Screenshot thumbnail
+                auto* screenshotLabel = new QLabel();
+                screenshotLabel->setFixedSize(150, 100);
+                screenshotLabel->setAlignment(Qt::AlignCenter);
+                screenshotLabel->setStyleSheet("border: 1px solid #555; border-radius: 4px; background-color: #2a2a2a;");
+                screenshotLabel->setText("Loading...");
+                
+                // Load thumbnail image
+                QNetworkRequest request(url);
+                QNetworkReply* reply = networkManager->get(request);
+                
+                connect(reply, &QNetworkReply::finished, [reply, screenshotLabel]() {
+                    if (reply->error() == QNetworkReply::NoError) {
+                        QByteArray imageData = reply->readAll();
+                        QPixmap pixmap;
+                        if (pixmap.loadFromData(imageData)) {
+                            screenshotLabel->setPixmap(pixmap.scaled(150, 100, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+                        } else {
+                            screenshotLabel->setText("Failed");
+                        }
+                    } else {
+                        screenshotLabel->setText("Error");
+                    }
+                    reply->deleteLater();
+                });
+                
+                thumbnailContainer->addWidget(screenshotLabel);
+                
+                // Add clickable link below thumbnail
+                auto* linkLabel = new QLabel(QString("<a href=\"%1\" style=\"color: #2196F3;\">Full size</a>").arg(url));
+                linkLabel->setStyleSheet("color: #cccccc; font-size: 10px; text-align: center;");
+                linkLabel->setAlignment(Qt::AlignCenter);
+                linkLabel->setTextInteractionFlags(Qt::TextBrowserInteraction);
+                linkLabel->setOpenExternalLinks(true);
+                thumbnailContainer->addWidget(linkLabel);
+                
+                thumbnailsLayout->addLayout(thumbnailContainer);
+            }
+            
+            thumbnailsLayout->addStretch();
+            screenshotsLayout->addLayout(thumbnailsLayout);
+            
+            if (gameEntry.gameData.screenshotUrls.size() > 5) {
+                auto* moreLabel = new QLabel(QString("... and %1 more screenshots").arg(gameEntry.gameData.screenshotUrls.size() - 5));
+                moreLabel->setStyleSheet("color: #888; font-style: italic; font-size: 11px; margin-top: 5px;");
+                screenshotsLayout->addWidget(moreLabel);
+            }
+            
+            screenshotsContainer->setStyleSheet("background-color: #2a2a2a; border-radius: 4px; padding: 8px; margin-bottom: 10px;");
+            contentLayout->addWidget(screenshotsContainer);
+        }
+        
+    } else {
+        auto* noIgdbLabel = new QLabel("No IGDB data available. Use the refresh button to search for metadata.");
+        noIgdbLabel->setStyleSheet("color: #888; font-style: italic; margin-bottom: 10px;");
+        contentLayout->addWidget(noIgdbLabel);
+    }
+    
+    // Separator
+    auto* separator2 = new QFrame();
+    separator2->setFrameShape(QFrame::HLine);
+    separator2->setStyleSheet("color: #555; margin: 10px 0;");
+    contentLayout->addWidget(separator2);
+    
+    // File Information section
+    auto* fileInfoLabel = new QLabel("File Information");
+    fileInfoLabel->setStyleSheet("font-size: 14px; font-weight: bold; color: #4CAF50; margin-bottom: 8px;");
+    contentLayout->addWidget(fileInfoLabel);
+    
+    QFileInfo gameFileInfo(gameEntry.gameData.path);
+    if (gameFileInfo.exists()) {
+        auto* sizeLabel = new QLabel(QString("Size: %1").arg(formatFileSize(gameFileInfo.size())));
+        sizeLabel->setStyleSheet("color: #cccccc; margin-bottom: 5px;");
+        contentLayout->addWidget(sizeLabel);
+        
+        auto* modifiedLabel = new QLabel(QString("Last Modified: %1").arg(gameFileInfo.lastModified().toString()));
+        modifiedLabel->setStyleSheet("color: #cccccc; margin-bottom: 5px;");
+        contentLayout->addWidget(modifiedLabel);
+    }
+    
+    contentLayout->addStretch();
+    
+    // Close button
+    auto* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+    
+    auto* closeButton = new QPushButton("Close");
+    closeButton->setStyleSheet(R"(
+        QPushButton {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 12px;
+            min-width: 80px;
+        }
+        QPushButton:hover {
+            background-color: #45a049;
+        }
+    )");
+    connect(closeButton, &QPushButton::clicked, infoDialog, &QDialog::accept);
+    buttonLayout->addWidget(closeButton);
+    
+    mainLayout->addLayout(buttonLayout);
+    
+    // Set dialog style
+    infoDialog->setStyleSheet(R"(
+        QDialog {
+            background-color: #1a1a1a;
+            color: #ffffff;
+        }
+        QScrollArea {
+            border: none;
+            background-color: #1a1a1a;
+        }
+        QLabel {
+            background-color: transparent;
+        }
+    )");
+    
+    infoDialog->exec();
+    infoDialog->deleteLater();
+}
+
+QString GameLibrary::formatFileSize(qint64 size) {
+    const double kb = 1024.0;
+    const double mb = kb * 1024.0;
+    const double gb = mb * 1024.0;
+    
+    if (size >= gb) {
+        return QString::number(size / gb, 'f', 2) + " GB";
+    } else if (size >= mb) {
+        return QString::number(size / mb, 'f', 2) + " MB";
+    } else if (size >= kb) {
+        return QString::number(size / kb, 'f', 2) + " KB";
+    } else {
+        return QString::number(size) + " bytes";
+    }
 }
 
 void GameLibrary::onCoverImageReady(int coverId, const QString& url, const GameEntry& gameEntry) {
+    // Validate inputs
+    if (url.isEmpty() || gameEntry.gameData.path.isEmpty()) {
+        statusLabel->setText("Error: Invalid cover image data received from IGDB");
+        return;
+    }
+    
     // Handle cover image download completion
     statusLabel->setText(QString("Cover image downloaded for: %1").arg(gameEntry.gameData.name));
 
     // Update the game card with the new cover image
+    bool cardFound = false;
     for (GameCard* card : gameCards) {
         if (card && card->getGameEntry().gameData.path == gameEntry.gameData.path) {
             // Update the card's cover image
@@ -949,16 +1254,28 @@ void GameLibrary::onCoverImageReady(int coverId, const QString& url, const GameE
             
             // Save the updated metadata to disk
             saveGameMetadata(updatedEntry);
+            cardFound = true;
             break;
         }
+    }
+    
+    if (!cardFound) {
+        statusLabel->setText("Warning: Could not find game card to update cover");
     }
 }
 
 void GameLibrary::onGameDetailsReady(const IgdbGame& game, const GameEntry& gameEntry) {
+    // Validate inputs
+    if (game.name.isEmpty() || gameEntry.gameData.path.isEmpty()) {
+        statusLabel->setText("Error: Invalid game data received from IGDB");
+        return;
+    }
+    
     // Handle game details download completion
     statusLabel->setText(QString("Game details updated for: %1").arg(gameEntry.gameData.name));
 
     // Update the game card with the new details
+    bool cardFound = false;
     for (GameCard* card : gameCards) {
         if (card && card->getGameEntry().gameData.path == gameEntry.gameData.path) {
             // Update the card's game details
@@ -972,8 +1289,13 @@ void GameLibrary::onGameDetailsReady(const IgdbGame& game, const GameEntry& game
             
             // Save the updated metadata to disk
             saveGameMetadata(updatedEntry);
+            cardFound = true;
             break;
         }
+    }
+    
+    if (!cardFound) {
+        statusLabel->setText("Warning: Could not find game card to update");
     }
 }
 
@@ -1174,12 +1496,10 @@ void GameLibrary::onIgdbCoverImageRequested(const QString& imageUrl, const GameE
             // Update the card to show that IGDB image is available
             card->setIgdbCoverImage(imageUrl);
 
-            // Update the game entry with the cover URL for future use
+            // Update the game entry with the cover URL for future use - but don't trigger UI update again
             GameEntry updatedEntry = card->getGameEntry();
             updatedEntry.gameData.coverUrl = imageUrl;
-            card->updateGameData(updatedEntry);
-
-            // Save metadata
+            // Save metadata but don't call updateGameData to avoid infinite recursion
             saveGameMetadata(updatedEntry);
             break;
         }
