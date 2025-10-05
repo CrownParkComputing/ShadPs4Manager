@@ -146,7 +146,7 @@ jobs:
         host: 'windows'
         target: 'desktop'
         arch: 'win64_msvc2019_64'
-        modules: 'qtbase qttools'
+        modules: 'qt5compat'
         cache: true
         
     - name: Build
