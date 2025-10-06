@@ -1,4 +1,5 @@
 #include "settings.h"
+#include "credential_manager.h"
 #include <QStandardPaths>
 #include <QDir>
 
@@ -14,16 +15,14 @@ Settings::Settings() : m_settings("ShadPs4Manager", "Settings") {
 void Settings::loadSettings() {
     m_gameLibraryPath = m_settings.value("paths/gameLibrary", getDefaultGameLibraryPath()).toString();
     m_downloadsPath = m_settings.value("paths/downloads", getDefaultDownloadsPath()).toString();
-    m_igdbClientId = m_settings.value("igdb/clientId", "").toString();
-    m_igdbClientSecret = m_settings.value("igdb/clientSecret", "").toString();
+    // IGDB credentials now loaded from CredentialManager (encrypted storage)
 }
 
 void Settings::saveSettings() {
     m_settings.setValue("paths/gameLibrary", m_gameLibraryPath);
     m_settings.setValue("paths/downloads", m_downloadsPath);
     m_settings.setValue("paths/shadps4", getShadPS4Path());
-    m_settings.setValue("igdb/clientId", m_igdbClientId);
-    m_settings.setValue("igdb/clientSecret", m_igdbClientSecret);
+    // IGDB credentials now saved through CredentialManager (encrypted storage)
     m_settings.sync();
 }
 
@@ -117,19 +116,21 @@ bool Settings::createDownloadsDirectory() {
 }
 
 QString Settings::getIgdbClientId() const {
-    return m_igdbClientId;
+    return CredentialManager::instance().getIgdbClientId();
 }
 
 void Settings::setIgdbClientId(const QString& clientId) {
-    m_igdbClientId = clientId;
-    saveSettings();
+    CredentialManager::instance().setIgdbClientId(clientId);
 }
 
 QString Settings::getIgdbClientSecret() const {
-    return m_igdbClientSecret;
+    return CredentialManager::instance().getIgdbClientSecret();
 }
 
 void Settings::setIgdbClientSecret(const QString& clientSecret) {
-    m_igdbClientSecret = clientSecret;
-    saveSettings();
+    CredentialManager::instance().setIgdbClientSecret(clientSecret);
+}
+
+bool Settings::hasValidIgdbCredentials() const {
+    return CredentialManager::instance().hasValidIgdbCredentials();
 }

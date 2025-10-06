@@ -34,11 +34,12 @@ public:
     bool createGameLibraryDirectory();
     bool createDownloadsDirectory();
 
-    // IGDB API credentials
+    // IGDB API credentials (now handled through encrypted storage)
     QString getIgdbClientId() const;
     void setIgdbClientId(const QString& clientId);
     QString getIgdbClientSecret() const;
     void setIgdbClientSecret(const QString& clientSecret);
+    bool hasValidIgdbCredentials() const;
 
 private:
     Settings();
@@ -49,8 +50,7 @@ private:
     QSettings m_settings;
     QString m_gameLibraryPath;
     QString m_downloadsPath;
-    QString m_igdbClientId;
-    QString m_igdbClientSecret;
+    // IGDB credentials removed - now handled by CredentialManager
 
     void loadSettings();
     void saveSettings();

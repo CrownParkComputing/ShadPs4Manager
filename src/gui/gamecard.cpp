@@ -31,38 +31,7 @@ void GameCard::setupUI() {
     m_mainLayout->setSpacing(8);
     m_mainLayout->setContentsMargins(8, 8, 8, 8);
 
-    // Play/control buttons container (top center)
-    QWidget* playButtonContainer = new QWidget(m_mainContainer);
-    QHBoxLayout* playButtonLayout = new QHBoxLayout(playButtonContainer);
-    playButtonLayout->setContentsMargins(0, 0, 0, 0);
-    playButtonLayout->setSpacing(4);
-
-    // Create play/control buttons (larger, more prominent)
-    m_launchButton = new QPushButton(playButtonContainer);
-    m_launchButton->setObjectName("launchButton");
-    m_launchButton->setFixedSize(40, 28);
-    m_launchButton->setToolTip("Launch Game");
-    connect(m_launchButton, &QPushButton::clicked, this, &GameCard::onLaunchButtonClicked);
-
-    m_stopButton = new QPushButton(playButtonContainer);
-    m_stopButton->setObjectName("stopButton");
-    m_stopButton->setFixedSize(40, 28);
-    m_stopButton->setToolTip("Stop Game");
-    connect(m_stopButton, &QPushButton::clicked, this, &GameCard::onStopButtonClicked);
-
-    m_killButton = new QPushButton(playButtonContainer);
-    m_killButton->setObjectName("killButton");
-    m_killButton->setFixedSize(40, 28);
-    m_killButton->setToolTip("Force Kill Game");
-    m_killButton->setVisible(false); // Initially hidden
-    connect(m_killButton, &QPushButton::clicked, this, &GameCard::onKillButtonClicked);
-
-    // Center the play buttons
-    playButtonLayout->addStretch();
-    playButtonLayout->addWidget(m_launchButton);
-    playButtonLayout->addWidget(m_stopButton);
-    playButtonLayout->addWidget(m_killButton);
-    playButtonLayout->addStretch();
+    // Play buttons removed - cover image will be clickable for launch
 
     // Title label (above cover)
     m_titleLabel = new QLabel(m_mainContainer);
@@ -77,6 +46,12 @@ void GameCard::setupUI() {
     m_coverImage->setMinimumSize(160, 200);
     m_coverImage->setMaximumSize(160, 200);
     m_coverImage->setAlignment(Qt::AlignCenter);
+    m_coverImage->setCursor(Qt::PointingHandCursor);
+    m_coverImage->setToolTip("Click to launch game");
+    m_coverImage->setStyleSheet("QLabel:hover { border: 2px solid #2196F3; }");
+    
+    // Make cover image clickable
+    m_coverImage->installEventFilter(this);
 
     // Info buttons container (bottom - fit under cover width)
     QWidget* infoButtonContainer = new QWidget(m_mainContainer);
@@ -89,24 +64,28 @@ void GameCard::setupUI() {
     m_settingsButton->setObjectName("settingsButton");
     m_settingsButton->setFixedSize(11, 21);
     m_settingsButton->setToolTip("Game Settings");
+    m_settingsButton->setCursor(Qt::PointingHandCursor);
     connect(m_settingsButton, &QPushButton::clicked, this, &GameCard::onSettingsButtonClicked);
 
     m_infoButton = new QPushButton(infoButtonContainer);
     m_infoButton->setObjectName("infoButton");
     m_infoButton->setFixedSize(11, 21);
-    m_infoButton->setToolTip("Game Details");
+    m_infoButton->setToolTip("Game Information");
+    m_infoButton->setCursor(Qt::PointingHandCursor);
     connect(m_infoButton, &QPushButton::clicked, this, &GameCard::onInfoButtonClicked);
 
     m_deleteButton = new QPushButton(infoButtonContainer);
     m_deleteButton->setObjectName("deleteButton");
     m_deleteButton->setFixedSize(11, 21);
     m_deleteButton->setToolTip("Delete Game");
+    m_deleteButton->setCursor(Qt::PointingHandCursor);
     connect(m_deleteButton, &QPushButton::clicked, this, &GameCard::onDeleteButtonClicked);
 
     m_refreshButton = new QPushButton(infoButtonContainer);
     m_refreshButton->setObjectName("refreshButton");
     m_refreshButton->setFixedSize(11, 21);
     m_refreshButton->setToolTip("Refresh IGDB Data");
+    m_refreshButton->setCursor(Qt::PointingHandCursor);
     connect(m_refreshButton, &QPushButton::clicked, this, &GameCard::onRefreshButtonClicked);
 
     // Add info buttons horizontally to fit under cover
@@ -129,7 +108,6 @@ void GameCard::setupUI() {
     statusPanelLayout->addStretch();
 
     // Add all components to main vertical layout
-    m_mainLayout->addWidget(playButtonContainer);
     m_mainLayout->addWidget(m_titleLabel, 0, Qt::AlignCenter);
     m_mainLayout->addWidget(m_coverImage, 0, Qt::AlignCenter);
     m_mainLayout->addWidget(infoButtonContainer, 0, Qt::AlignCenter);
@@ -239,43 +217,38 @@ void GameCard::setupStyle() {
 void GameCard::updateUI() {
     m_titleLabel->setText(m_game.gameData.name);
 
-    // Update launch button based on state and compressed status
+    // Update cover image appearance based on state and compressed status
+    QString coverTooltip;
+    QString coverBorderColor = "#2196F3"; // Default blue border on hover
+    
     switch (m_launchState) {
         case GameLaunchState::Idle:
-            m_launchButton->setToolTip(m_game.gameData.isCompressed ?
-                "Extract & Launch Game" : "Launch Game");
-            m_launchButton->setText("▶");
-            m_launchButton->setVisible(true);
-            m_stopButton->setVisible(false);
-            m_killButton->setVisible(false);
+            coverTooltip = m_game.gameData.isCompressed ?
+                "Click to extract & launch game" : "Click to launch game";
+            coverBorderColor = "#4CAF50"; // Green for ready to launch
             break;
 
         case GameLaunchState::Launching:
-            m_launchButton->setToolTip("Launching...");
-            m_launchButton->setText("⟳");
-            m_launchButton->setVisible(true);
-            m_stopButton->setVisible(false);
-            m_killButton->setVisible(false);
+            coverTooltip = "Game is launching...";
+            coverBorderColor = "#FF9800"; // Orange for launching
             break;
 
         case GameLaunchState::Running:
-            m_launchButton->setVisible(false);
-            m_stopButton->setVisible(true);
-            m_stopButton->setToolTip("Stop Game");
-            m_stopButton->setText("⏹");
-            m_killButton->setVisible(true);
-            m_killButton->setToolTip("Force Kill Game");
-            m_killButton->setText("💀");
+            coverTooltip = "Game is currently running";
+            coverBorderColor = "#F44336"; // Red for running
             break;
 
         case GameLaunchState::Failed:
-            m_launchButton->setToolTip("Launch Failed (Click to Retry)");
-            m_launchButton->setText("⚠");
-            m_launchButton->setVisible(true);
-            m_stopButton->setVisible(false);
-            m_killButton->setVisible(false);
+            coverTooltip = "Launch failed - Click to retry";
+            coverBorderColor = "#9C27B0"; // Purple for failed
             break;
     }
+    
+    m_coverImage->setToolTip(coverTooltip);
+    
+    // Update cover hover border color based on state
+    QString hoverStyle = QString("QLabel:hover { border: 2px solid %1; }").arg(coverBorderColor);
+    m_coverImage->setStyleSheet(hoverStyle);
 
     // Update button text/icons
     m_settingsButton->setText("⚙");
@@ -393,20 +366,19 @@ void GameCard::mousePressEvent(QMouseEvent* event) {
     }
 }
 
-
-
-void GameCard::onLaunchButtonClicked() {
-    emit launchRequested(m_game);
+bool GameCard::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == m_coverImage && event->type() == QEvent::MouseButtonPress) {
+        QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
+        if (mouseEvent->button() == Qt::LeftButton) {
+            // Handle cover image click - launch the game
+            emit launchRequested(m_game);
+            return true;
+        }
+    }
+    return QWidget::eventFilter(obj, event);
 }
 
-void GameCard::onStopButtonClicked() {
-    emit stopRequested(m_game);
-}
-
-void GameCard::onKillButtonClicked() {
-    emit killRequested(m_game);
-}
-
+// Launch functionality now handled through cover image click
 void GameCard::onSettingsButtonClicked() {
     emit settingsRequested(m_game);
 }

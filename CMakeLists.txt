@@ -145,6 +145,7 @@ if(BUILD_GUI)
             src/gui/downloads_folder.cpp
             src/gui/param_sfo.cpp
             src/gui/igdbservice.cpp
+            src/gui/credential_manager.cpp
         )
         
         target_link_libraries(shadps4-manager-gui PRIVATE

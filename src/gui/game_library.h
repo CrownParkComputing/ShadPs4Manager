@@ -102,7 +102,6 @@ private:
     QWidget* cardsContainer;
     QGridLayout* cardsLayout;
     QLabel* statusLabel;
-    QPushButton* refreshButton;
     QString libraryPath;
     QList<GameInfo> games;
     QList<GameCard*> gameCards;

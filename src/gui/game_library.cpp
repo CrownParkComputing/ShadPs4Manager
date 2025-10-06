@@ -41,13 +41,11 @@ GameLibrary::GameLibrary(QWidget* parent) : QWidget(parent) {
 void GameLibrary::setupUI() {
     auto* mainLayout = new QVBoxLayout(this);
 
-    // Header
+    // Header (simplified - no duplicate refresh button)
     auto* headerLayout = new QHBoxLayout();
     auto* headerLabel = new QLabel("Game Library");
     headerLabel->setObjectName("libraryHeader");
-    refreshButton = new QPushButton("Refresh");
     headerLayout->addWidget(headerLabel, 1);
-    headerLayout->addWidget(refreshButton);
     mainLayout->addLayout(headerLayout);
 
     // Scroll area for game cards
@@ -71,8 +69,7 @@ void GameLibrary::setupUI() {
     statusLabel = new QLabel("Ready");
     mainLayout->addWidget(statusLabel);
 
-    // Connect signals
-    connect(refreshButton, &QPushButton::clicked, this, &GameLibrary::refreshLibrary);
+    // Connect scroll area signals (removed refresh button connection)
 }
 
 void GameLibrary::applyStyles() {

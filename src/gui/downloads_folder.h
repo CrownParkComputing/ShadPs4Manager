@@ -7,11 +7,21 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QListWidget>
+#include <QTreeWidget>
 #include <QDir>
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QMenu>
 #include <QAction>
+#include <QGroupBox>
+#include <QProgressBar>
+
+enum class PkgType {
+    BaseGame,
+    Update,
+    DLC,
+    Unknown
+};
 
 struct DownloadInfo {
     QString fileName;
@@ -19,6 +29,19 @@ struct DownloadInfo {
     qint64 size;
     QString titleId;
     QString contentId;
+    PkgType pkgType;
+    QString gameName;
+    QString version;
+    int installOrder; // 0 = base game, 1+ = updates/DLC in order
+};
+
+struct GameGroup {
+    QString gameName;
+    QString titleId;
+    QList<DownloadInfo> packages;
+    bool hasBaseGame = false;
+    int updateCount = 0;
+    int dlcCount = 0;
 };
 
 class DownloadsFolder : public QWidget {
@@ -36,25 +59,36 @@ public slots:
     void setDownloadsPath(const QString& path);
 
 private slots:
-    void onPkgDoubleClicked(QListWidgetItem* item);
-    void onPkgRightClicked(const QPoint& pos);
-    void extractPkg();
-    void showPkgInfo();
-    void extractAllPkgs();
+    void onGameDoubleClicked(QTreeWidgetItem* item, int column);
+    void onGameRightClicked(const QPoint& pos);
+    void extractGame();
+    void extractSelectedPkgs();
+    void showGameInfo();
+    void installGameInOrder();
 
 private:
     void setupUI();
     void applyStyles();
     void loadPkgs();
     void clearPkgs();
+    void groupGamesByTitle();
+    void updateGameTree();
     DownloadInfo parsePkgInfo(const QString& pkgPath);
+    PkgType detectPkgType(const QString& contentId, const QString& titleId);
+    QString extractGameName(const QString& pkgPath);
+    QString formatFileSize(qint64 size);
+    bool checkBatchDiskSpace(const QList<DownloadInfo>& packages, const QString& outputBasePath, QString& errorMessage);
+    QString getProperDirectoryName(const QString& pkgPath);
+    QString formatBytes(uint64_t bytes);
 
-    QListWidget* pkgListWidget;
+    QTreeWidget* gameTreeWidget;
     QLabel* statusLabel;
     QPushButton* refreshButton;
-    QPushButton* extractAllButton;
+    QPushButton* installSelectedButton;
+    QPushButton* installAllButton;
     QString downloadsPath;
     QList<DownloadInfo> downloads;
+    QList<GameGroup> gameGroups;
 };
 
 #endif // DOWNLOADS_FOLDER_H

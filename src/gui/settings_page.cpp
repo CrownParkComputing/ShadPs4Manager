@@ -88,10 +88,18 @@ void SettingsPage::setupUI() {
     igdbInfoLabel->setStyleSheet("color: #888888; font-size: 11px;");
     igdbLayout->addWidget(igdbInfoLabel);
 
-    // IGDB test button
+    // IGDB buttons
+    auto* igdbButtonLayout = new QHBoxLayout();
+    auto* setDefaultCredsButton = new QPushButton("Use Default Credentials");
     auto* testIgdbButton = new QPushButton("Test Connection");
+    
+    setDefaultCredsButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 11px; } QPushButton:hover { background-color: #45a049; }");
     testIgdbButton->setStyleSheet("QPushButton { background-color: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 11px; } QPushButton:hover { background-color: #0b7dda; }");
-    igdbLayout->addWidget(testIgdbButton);
+    
+    igdbButtonLayout->addWidget(setDefaultCredsButton);
+    igdbButtonLayout->addWidget(testIgdbButton);
+    igdbButtonLayout->addStretch();
+    igdbLayout->addLayout(igdbButtonLayout);
 
     mainLayout->addWidget(igdbGroup);
 
@@ -118,6 +126,7 @@ void SettingsPage::setupUI() {
     // Connect IGDB credential editing and testing
     connect(igdbClientIdEdit, &QLineEdit::textChanged, this, &SettingsPage::saveIgdbCredentials);
     connect(igdbClientSecretEdit, &QLineEdit::textChanged, this, &SettingsPage::saveIgdbCredentials);
+    connect(setDefaultCredsButton, &QPushButton::clicked, this, &SettingsPage::setDefaultIgdbCredentials);
     connect(testIgdbButton, &QPushButton::clicked, this, &SettingsPage::testIgdbConnection);
 }
 
@@ -294,6 +303,23 @@ void SettingsPage::saveIgdbCredentials() {
     Settings& settings = Settings::instance();
     settings.setIgdbClientId(igdbClientIdEdit->text());
     settings.setIgdbClientSecret(igdbClientSecretEdit->text());
+}
+
+void SettingsPage::setDefaultIgdbCredentials() {
+    // Set the provided IGDB credentials
+    const QString defaultClientId = "ocrjdozwkkal2p4wx9e8qh6lj6kn90";
+    const QString defaultClientSecret = "brj8c9yzc2y92rh22266ikxslpvft9";
+    
+    igdbClientIdEdit->setText(defaultClientId);
+    igdbClientSecretEdit->setText(defaultClientSecret);
+    
+    // Save the credentials automatically
+    saveIgdbCredentials();
+    
+    QMessageBox::information(this, "Default Credentials Set",
+        "Default IGDB credentials have been set and saved securely.\n\n"
+        "You can now use IGDB features to download game metadata, cover images, and screenshots.\n\n"
+        "Click 'Test Connection' to verify the credentials are working.");
 }
 
 void SettingsPage::testIgdbConnection() {

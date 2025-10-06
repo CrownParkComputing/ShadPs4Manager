@@ -67,11 +67,10 @@ signals:
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
-    void onLaunchButtonClicked();
-    void onStopButtonClicked();
-    void onKillButtonClicked();
+    // Launch functionality now handled through cover image click
     void onSettingsButtonClicked();
     void onInfoButtonClicked();
     void onDeleteButtonClicked();
@@ -93,9 +92,7 @@ private:
     QLabel* m_coverImage;
     QLabel* m_titleLabel;
     QLabel* m_statusLabel;
-    QPushButton* m_launchButton;
-    QPushButton* m_stopButton;
-    QPushButton* m_killButton;
+    // Launch buttons removed - cover image is now clickable
     QPushButton* m_settingsButton;
     QPushButton* m_infoButton;
     QPushButton* m_deleteButton;

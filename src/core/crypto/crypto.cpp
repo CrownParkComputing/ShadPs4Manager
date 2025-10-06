@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <array>
+#include <algorithm>
 
 #include "crypto.h"
 
@@ -133,8 +134,11 @@ void Crypto::aesCbcCfb128DecryptEntry(std::span<const CryptoPP::byte, 32> ivkey,
     CryptoPP::CBC_Mode_ExternalCipher::Decryption cbcDecryption(aesDecryption, iv.data());
 
     for (size_t i = 0; i < decrypted.size(); i += CryptoPP::AES::BLOCKSIZE) {
-        cbcDecryption.ProcessData(decrypted.data() + i, ciphertext.data() + i,
-                                  CryptoPP::AES::BLOCKSIZE);
+        // Calculate remaining bytes to avoid buffer overflow
+        size_t remaining = decrypted.size() - i;
+        size_t block_size = std::min(remaining, static_cast<size_t>(CryptoPP::AES::BLOCKSIZE));
+        
+        cbcDecryption.ProcessData(decrypted.data() + i, ciphertext.data() + i, block_size);
     }
 }
 

@@ -34,6 +34,7 @@ private slots:
     void createDownloadsDirectory();
     void resetToDefaults();
     void saveIgdbCredentials();
+    void setDefaultIgdbCredentials();
     void testIgdbConnection();
     void showIgdbTestResults(const QString& result);
 
