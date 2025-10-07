@@ -56,7 +56,7 @@ jobs:
         cmake -B build `
           -DCMAKE_BUILD_TYPE=Release `
           -DBUILD_GUI=ON `
-          -DCMAKE_VERBOSE_MAKEFILE=ON
+          -DCMAKE_VERBOSE_MAKEFILE=ON `
           -DGIT_REV="${{ github.sha }}" `
           -DGIT_BRANCH="${{ github.ref_name }}" `
           -DGIT_DESC="${{ github.ref_name }}-${{ github.sha }}"

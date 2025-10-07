@@ -179,13 +179,16 @@ void DownloadsFolder::loadPkgs() {
     QStringList archiveFiles = downloadsDir.entryList(QStringList{"*.rar", "*.zip", "*.7z"}, QDir::Files);
 
     if (pkgFiles.isEmpty() && archiveFiles.isEmpty()) {
-        statusLabel->setText("No PKG or archive files found in downloads");
+        statusLabel->setText(QString("No PKG or archive files found in: %1").arg(downloadsPath));
         return;
     }
 
     // Clear existing data
     downloads.clear();
     gameGroups.clear();
+
+    int validPkgCount = 0;
+    int skippedPkgCount = 0;
 
     // Parse all PKG files
     for (const QString& pkgFile : pkgFiles) {
@@ -195,16 +198,19 @@ void DownloadsFolder::loadPkgs() {
         QFileInfo pkgFileInfo(pkgPath);
         if (!pkgFileInfo.exists() || pkgFileInfo.size() == 0) {
             qDebug() << "Skipping empty or invalid PKG file:" << pkgPath;
+            skippedPkgCount++;
             continue;
         }
         
         if (pkgFileInfo.size() < 1024) { // PKG files should be at least 1KB
             qDebug() << "Skipping too small PKG file:" << pkgPath << "Size:" << pkgFileInfo.size();
+            skippedPkgCount++;
             continue;
         }
         
         DownloadInfo pkgInfo = parsePkgInfo(pkgPath);
         downloads.append(pkgInfo);
+        validPkgCount++;
     }
     
     // Add archive files as separate entries
@@ -230,7 +236,10 @@ void DownloadsFolder::loadPkgs() {
     updateGameTree();
 
     int totalFiles = pkgFiles.size() + archiveFiles.size();
-    QString statusText = QString("Found %1 games with %2 PKG files").arg(gameGroups.size()).arg(pkgFiles.size());
+    QString statusText = QString("Found %1 games with %2 valid PKG files").arg(gameGroups.size()).arg(validPkgCount);
+    if (skippedPkgCount > 0) {
+        statusText += QString(" (%1 invalid/empty PKGs skipped)").arg(skippedPkgCount);
+    }
     if (!archiveFiles.isEmpty()) {
         statusText += QString(", %1 archives").arg(archiveFiles.size());
     }

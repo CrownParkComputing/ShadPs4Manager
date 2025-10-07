@@ -30,6 +30,7 @@ public slots:
 private slots:
     void selectGameLibraryPath();
     void selectDownloadsPath();
+    void selectShadPS4Path();
     void createGameLibraryDirectory();
     void createDownloadsDirectory();
     void resetToDefaults();
@@ -45,14 +46,17 @@ private:
 
     QLabel* gameLibraryPathLabel;
     QLabel* downloadsPathLabel;
+    QLabel* shadps4PathLabel;
     QLabel* gameLibraryStatusLabel;
     QLabel* downloadsStatusLabel;
+    QLabel* shadps4StatusLabel;
 
     QLineEdit* igdbClientIdEdit;
     QLineEdit* igdbClientSecretEdit;
 
     QString gameLibraryPath;
     QString downloadsPath;
+    QString shadps4Path;
     
     IgdbService* m_igdbService;
 };

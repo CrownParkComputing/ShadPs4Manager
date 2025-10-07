@@ -58,6 +58,23 @@ void SettingsPage::setupUI() {
 
     mainLayout->addWidget(downloadsGroup);
 
+    // ShadPS4 Executable Section
+    auto* shadps4Group = new QGroupBox("ShadPS4 Emulator Path");
+    auto* shadps4Layout = new QVBoxLayout(shadps4Group);
+
+    auto* shadps4Row = new QHBoxLayout();
+    auto* selectShadPS4Button = new QPushButton("Browse...");
+    shadps4PathLabel = new QLabel();
+
+    shadps4Row->addWidget(selectShadPS4Button);
+    shadps4Row->addWidget(shadps4PathLabel, 1);
+
+    shadps4Layout->addLayout(shadps4Row);
+    shadps4StatusLabel = new QLabel();
+    shadps4Layout->addWidget(shadps4StatusLabel);
+
+    mainLayout->addWidget(shadps4Group);
+
     // IGDB API Section
     auto* igdbGroup = new QGroupBox("IGDB API Configuration");
     auto* igdbLayout = new QVBoxLayout(igdbGroup);
@@ -120,6 +137,7 @@ void SettingsPage::setupUI() {
     connect(createGameLibraryButton, &QPushButton::clicked, this, &SettingsPage::createGameLibraryDirectory);
     connect(selectDownloadsButton, &QPushButton::clicked, this, &SettingsPage::selectDownloadsPath);
     connect(createDownloadsButton, &QPushButton::clicked, this, &SettingsPage::createDownloadsDirectory);
+    connect(selectShadPS4Button, &QPushButton::clicked, this, &SettingsPage::selectShadPS4Path);
     connect(resetButton, &QPushButton::clicked, this, &SettingsPage::resetToDefaults);
     connect(refreshButton, &QPushButton::clicked, this, &SettingsPage::refreshSettings);
 
@@ -203,6 +221,7 @@ void SettingsPage::refreshSettings() {
 
     gameLibraryPath = settings.getGameLibraryPath();
     downloadsPath = settings.getDownloadsPath();
+    shadps4Path = settings.getShadPS4Path();
 
     // Load IGDB credentials
     igdbClientIdEdit->setText(settings.getIgdbClientId());
@@ -235,6 +254,17 @@ void SettingsPage::updatePathDisplay() {
         downloadsStatusLabel->setObjectName("statusInvalid");
     }
 
+    // Update ShadPS4 path display
+    shadps4PathLabel->setText(shadps4Path.isEmpty() ? "Not configured" : shadps4Path);
+    QFileInfo shadps4File(shadps4Path);
+    if (shadps4File.exists() && shadps4File.isExecutable()) {
+        shadps4StatusLabel->setText("✓ Executable found");
+        shadps4StatusLabel->setObjectName("statusValid");
+    } else {
+        shadps4StatusLabel->setText("✗ Executable not found or not executable");
+        shadps4StatusLabel->setObjectName("statusInvalid");
+    }
+
     // Reapply styles to update colors
     applyStyles();
 }
@@ -261,6 +291,20 @@ void SettingsPage::selectDownloadsPath() {
 
     if (!dir.isEmpty()) {
         Settings::instance().setDownloadsPath(dir);
+        refreshSettings();
+    }
+}
+
+void SettingsPage::selectShadPS4Path() {
+    QString file = QFileDialog::getOpenFileName(
+        this,
+        "Select ShadPS4 Executable",
+        Settings::instance().getShadPS4Path(),
+        "Executables (*);;All Files (*.*)"
+    );
+
+    if (!file.isEmpty()) {
+        Settings::instance().setShadPS4Path(file);
         refreshSettings();
     }
 }
@@ -292,6 +336,7 @@ void SettingsPage::resetToDefaults() {
 
     settings.setGameLibraryPath(settings.getDefaultGameLibraryPath());
     settings.setDownloadsPath(settings.getDefaultDownloadsPath());
+    settings.setShadPS4Path(settings.getDefaultShadPS4Path());
 
     refreshSettings();
 
