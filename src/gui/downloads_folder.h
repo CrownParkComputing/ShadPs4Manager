@@ -15,6 +15,7 @@
 #include <QAction>
 #include <QGroupBox>
 #include <QProgressBar>
+#include <QInputDialog>
 
 enum class PkgType {
     BaseGame,
@@ -66,6 +67,10 @@ private slots:
     void extractSelectedPkgs();
     void showGameInfo();
     void installGameInOrder();
+    void installSinglePackage(const DownloadInfo& pkg);
+    void installGameGroup(const GameGroup& group);
+    void extractArchiveFile(const QString& archivePath);
+    void deletePackage(const DownloadInfo& pkg, QTreeWidgetItem* item);
 
 private:
     void setupUI();

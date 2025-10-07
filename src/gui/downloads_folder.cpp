@@ -8,6 +8,7 @@
 #include <QProcess>
 #include <QProgressDialog>
 #include <QApplication>
+#include <QDirIterator>
 #include <algorithm>
 #include <filesystem>
 #include <numeric>
@@ -36,15 +37,16 @@ void DownloadsFolder::setupUI() {
 
     // Game tree (grouped by game with proper ordering)
     gameTreeWidget = new QTreeWidget();
-    gameTreeWidget->setHeaderLabels({"Game / Package", "Type", "Version", "Size"});
-    gameTreeWidget->setContextMenuPolicy(Qt::CustomContextMenu);
+    gameTreeWidget->setHeaderLabels({"Game / Package", "Type", "Version", "Size", "Actions"});
+    gameTreeWidget->setContextMenuPolicy(Qt::NoContextMenu);
     gameTreeWidget->setAlternatingRowColors(true);
     
     // Set column widths to show full PKG names
-    gameTreeWidget->setColumnWidth(0, 400);  // Game/Package name - wider for full names
-    gameTreeWidget->setColumnWidth(1, 100);  // Type
-    gameTreeWidget->setColumnWidth(2, 80);   // Version
-    gameTreeWidget->setColumnWidth(3, 100);  // Size
+    gameTreeWidget->setColumnWidth(0, 350);  // Game/Package name
+    gameTreeWidget->setColumnWidth(1, 90);   // Type
+    gameTreeWidget->setColumnWidth(2, 70);   // Version
+    gameTreeWidget->setColumnWidth(3, 90);   // Size
+    gameTreeWidget->setColumnWidth(4, 150);  // Actions - room for 3 small buttons
     
     // Enable word wrapping and resize modes
     gameTreeWidget->header()->setStretchLastSection(false);
@@ -64,7 +66,6 @@ void DownloadsFolder::setupUI() {
     connect(installSelectedButton, &QPushButton::clicked, this, &DownloadsFolder::installGameInOrder);
     connect(installAllButton, &QPushButton::clicked, this, &DownloadsFolder::extractSelectedPkgs);
     connect(gameTreeWidget, &QTreeWidget::itemDoubleClicked, this, &DownloadsFolder::onGameDoubleClicked);
-    connect(gameTreeWidget, &QTreeWidget::customContextMenuRequested, this, &DownloadsFolder::onGameRightClicked);
 }
 
 void DownloadsFolder::applyStyles() {
@@ -147,6 +148,45 @@ void DownloadsFolder::applyStyles() {
             font-size: 12px;
             padding: 5px;
         }
+        
+        /* Action buttons - matching game card style */
+        #installFullButton, #pkgInstallButton, #pkgExtractButton, #pkgDeleteButton {
+            background-color: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            color: white;
+            font-size: 10px;
+            max-width: 11px;
+            min-width: 11px;
+        }
+        
+        #installFullButton {
+            background-color: #4CAF50;
+        }
+        
+        #installFullButton:hover {
+            background-color: #45a049;
+        }
+        
+        #pkgInstallButton {
+            background-color: #2196F3;
+        }
+        
+        #pkgInstallButton:hover {
+            background-color: #0b7dda;
+        }
+        
+        #pkgExtractButton {
+            background-color: #FF9800;
+        }
+        
+        #pkgExtractButton:hover {
+            background-color: #F57C00;
+        }
+        
+        #pkgDeleteButton:hover {
+            background-color: #f44336;
+        }
     )");
 }
 
@@ -174,9 +214,19 @@ void DownloadsFolder::loadPkgs() {
         return;
     }
 
-    // Look for PKG files and archives
-    QStringList pkgFiles = downloadsDir.entryList(QStringList{"*.pkg"}, QDir::Files);
-    QStringList archiveFiles = downloadsDir.entryList(QStringList{"*.rar", "*.zip", "*.7z"}, QDir::Files);
+    // Look for PKG files and archives recursively
+    QStringList pkgFiles;
+    QStringList archiveFiles;
+    
+    QDirIterator pkgIterator(downloadsPath, QStringList{"*.pkg"}, QDir::Files, QDirIterator::Subdirectories);
+    while (pkgIterator.hasNext()) {
+        pkgFiles.append(pkgIterator.next());
+    }
+    
+    QDirIterator archiveIterator(downloadsPath, QStringList{"*.rar", "*.zip", "*.7z"}, QDir::Files, QDirIterator::Subdirectories);
+    while (archiveIterator.hasNext()) {
+        archiveFiles.append(archiveIterator.next());
+    }
 
     if (pkgFiles.isEmpty() && archiveFiles.isEmpty()) {
         statusLabel->setText(QString("No PKG or archive files found in: %1").arg(downloadsPath));
@@ -192,7 +242,8 @@ void DownloadsFolder::loadPkgs() {
 
     // Parse all PKG files
     for (const QString& pkgFile : pkgFiles) {
-        QString pkgPath = downloadsDir.absoluteFilePath(pkgFile);
+        // pkgFile is already a full path from QDirIterator
+        QString pkgPath = pkgFile;
         
         // Validate PKG file before parsing
         QFileInfo pkgFileInfo(pkgPath);
@@ -215,12 +266,13 @@ void DownloadsFolder::loadPkgs() {
     
     // Add archive files as separate entries
     for (const QString& archiveFile : archiveFiles) {
-        QString archivePath = downloadsDir.absoluteFilePath(archiveFile);
+        // archiveFile is already a full path from QDirIterator
+        QString archivePath = archiveFile;
         QFileInfo archiveInfo(archivePath);
         
         DownloadInfo archiveEntry;
         archiveEntry.path = archivePath;
-        archiveEntry.fileName = archiveFile;
+        archiveEntry.fileName = archiveInfo.fileName();
         archiveEntry.gameName = archiveInfo.completeBaseName(); // Use filename without extension
         archiveEntry.titleId = "ARCHIVE";
         archiveEntry.contentId = "";
@@ -236,13 +288,14 @@ void DownloadsFolder::loadPkgs() {
     updateGameTree();
 
     int totalFiles = pkgFiles.size() + archiveFiles.size();
-    QString statusText = QString("Found %1 games with %2 valid PKG files").arg(gameGroups.size()).arg(validPkgCount);
+    QString statusText = QString("Found %1 games with %2 PKG files").arg(gameGroups.size()).arg(validPkgCount);
     if (skippedPkgCount > 0) {
-        statusText += QString(" (%1 invalid/empty PKGs skipped)").arg(skippedPkgCount);
+        statusText += QString(" (%1 skipped)").arg(skippedPkgCount);
     }
     if (!archiveFiles.isEmpty()) {
         statusText += QString(", %1 archives").arg(archiveFiles.size());
     }
+    statusText += " (searched recursively)";
     statusLabel->setText(statusText);
 }
 
@@ -387,6 +440,25 @@ void DownloadsFolder::updateGameTree() {
             gameItem->setForeground(0, QColor("#ff9800")); // Orange if missing base game
         }
         
+        // Add action button for "Install Full Game" for game groups
+        auto* gameActionWidget = new QWidget();
+        auto* gameActionLayout = new QHBoxLayout(gameActionWidget);
+        gameActionLayout->setContentsMargins(0, 0, 0, 0);
+        gameActionLayout->setSpacing(2);
+        
+        auto* installFullButton = new QPushButton("⬇", gameActionWidget);
+        installFullButton->setObjectName("installFullButton");
+        installFullButton->setToolTip("Install base game + all DLC in order");
+        installFullButton->setFixedSize(11, 21);
+        installFullButton->setCursor(Qt::PointingHandCursor);
+        connect(installFullButton, &QPushButton::clicked, [this, group]() {
+            installGameGroup(group);
+        });
+        
+        gameActionLayout->addWidget(installFullButton);
+        gameActionLayout->addStretch();
+        gameTreeWidget->setItemWidget(gameItem, 4, gameActionWidget);
+        
         // Add package items
         for (const DownloadInfo& pkg : group.packages) {
             auto* pkgItem = new QTreeWidgetItem(gameItem);
@@ -406,6 +478,57 @@ void DownloadsFolder::updateGameTree() {
             pkgItem->setText(2, pkg.version);
             pkgItem->setText(3, formatFileSize(pkg.size));
             pkgItem->setData(0, Qt::UserRole, pkg.path);
+            
+            // Add action buttons for PKG items
+            auto* actionWidget = new QWidget();
+            auto* actionLayout = new QHBoxLayout(actionWidget);
+            actionLayout->setContentsMargins(0, 0, 0, 0);
+            actionLayout->setSpacing(2);
+            
+            // Determine if this is an archive file
+            bool isArchive = (pkg.titleId == "ARCHIVE");
+            QString lowerPath = pkg.path.toLower();
+            bool isExtractableArchive = lowerPath.endsWith(".zip") || lowerPath.endsWith(".7z") || lowerPath.endsWith(".rar");
+            
+            // For archives: show Extract + Delete buttons
+            // For PKG files: show Install + Delete buttons
+            if (isArchive && isExtractableArchive) {
+                // Extract button for archives
+                auto* extractBtn = new QPushButton("📦", actionWidget);
+                extractBtn->setObjectName("pkgExtractButton");
+                extractBtn->setToolTip("Extract archive to Downloads folder");
+                extractBtn->setFixedSize(11, 21);
+                extractBtn->setCursor(Qt::PointingHandCursor);
+                connect(extractBtn, &QPushButton::clicked, [this, pkg]() {
+                    extractArchiveFile(pkg.path);
+                });
+                actionLayout->addWidget(extractBtn);
+            } else if (!isArchive) {
+                // Install button for PKG files only
+                auto* installBtn = new QPushButton("⬇", actionWidget);
+                installBtn->setObjectName("pkgInstallButton");
+                installBtn->setToolTip("Install this package");
+                installBtn->setFixedSize(11, 21);
+                installBtn->setCursor(Qt::PointingHandCursor);
+                connect(installBtn, &QPushButton::clicked, [this, pkg]() {
+                    installSinglePackage(pkg);
+                });
+                actionLayout->addWidget(installBtn);
+            }
+            
+            // Delete button (always shown for all file types)
+            auto* deleteBtn = new QPushButton("🗑", actionWidget);
+            deleteBtn->setObjectName("pkgDeleteButton");
+            deleteBtn->setToolTip("Delete this file");
+            deleteBtn->setFixedSize(11, 21);
+            deleteBtn->setCursor(Qt::PointingHandCursor);
+            connect(deleteBtn, &QPushButton::clicked, [this, pkg, pkgItem]() {
+                deletePackage(pkg, pkgItem);
+            });
+            actionLayout->addWidget(deleteBtn);
+            actionLayout->addStretch();
+            
+            gameTreeWidget->setItemWidget(pkgItem, 4, actionWidget);
             
             // Color code by type
             if (pkg.pkgType == PkgType::BaseGame) {
@@ -902,4 +1025,196 @@ QString DownloadsFolder::getProperDirectoryName(const QString& pkgPath) {
     
     // Final fallback: use cleaned filename
     return baseName + "_extracted";
+}
+
+void DownloadsFolder::installSinglePackage(const DownloadInfo& pkg) {
+    Settings& settings = Settings::instance();
+    QString gameLibraryPath = settings.getGameLibraryPath();
+    
+    if (gameLibraryPath.isEmpty()) {
+        QMessageBox::warning(this, "No Library Path", 
+            "Please configure a game library path in Settings first.");
+        return;
+    }
+    
+    QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkg.path);
+    emit extractionRequested(pkg.path, outputDir);
+}
+
+void DownloadsFolder::installGameGroup(const GameGroup& group) {
+    Settings& settings = Settings::instance();
+    QString gameLibraryPath = settings.getGameLibraryPath();
+    
+    if (gameLibraryPath.isEmpty()) {
+        QMessageBox::warning(this, "No Library Path", 
+            "Please configure a game library path in Settings first.");
+        return;
+    }
+    
+    // Check disk space for all packages in the group
+    QString spaceError;
+    if (!checkBatchDiskSpace(group.packages, gameLibraryPath, spaceError)) {
+        QMessageBox::critical(this, "Insufficient Disk Space", spaceError);
+        return;
+    }
+    
+    // Install in order: Base Game -> Updates -> DLC
+    QMessageBox::StandardButton reply = QMessageBox::question(this,
+        "Install Full Game",
+        QString("Install %1 with %2 packages in order?\\n\\nBase game, updates, and all DLC will be installed.")
+            .arg(group.gameName)
+            .arg(group.packages.size()),
+        QMessageBox::Yes | QMessageBox::No);
+    
+    if (reply == QMessageBox::Yes) {
+        for (const DownloadInfo& pkg : group.packages) {
+            QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkg.path);
+            emit extractionRequested(pkg.path, outputDir);
+        }
+    }
+}
+
+void DownloadsFolder::extractArchiveFile(const QString& archivePath) {
+    QFileInfo archiveInfo(archivePath);
+    QString outputDir = archiveInfo.absolutePath();
+    
+    // Ask if user wants to provide a password (optional)
+    QString password;
+    QMessageBox::StandardButton reply = QMessageBox::question(this, "Archive Password",
+        QString("Does the archive '%1' require a password?\n\nClick Yes if password-protected, No if not.")
+        .arg(archiveInfo.fileName()),
+        QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+    
+    if (reply == QMessageBox::Cancel) {
+        return; // User cancelled
+    }
+    
+    if (reply == QMessageBox::Yes) {
+        bool ok;
+        password = QInputDialog::getText(this, "Password Required",
+            QString("Enter password for '%1':")
+            .arg(archiveInfo.fileName()),
+            QLineEdit::Password, "", &ok);
+        
+        if (!ok) {
+            return; // User cancelled password entry
+        }
+    }
+    
+    // Create progress dialog with pulsing progress bar
+    QProgressDialog* progressDialog = new QProgressDialog(this);
+    progressDialog->setWindowTitle("Archive Extraction");
+    progressDialog->setLabelText(QString("Extracting: %1\n\nPlease wait...").arg(archiveInfo.fileName()));
+    progressDialog->setWindowModality(Qt::WindowModal);
+    progressDialog->setMinimum(0);
+    progressDialog->setMaximum(0);  // Indeterminate progress bar
+    progressDialog->setCancelButton(nullptr);
+    progressDialog->setMinimumDuration(0);
+    progressDialog->show();
+    QApplication::processEvents();
+    
+    // Create process for extraction
+    QProcess* process = new QProcess(this);
+    process->setWorkingDirectory(outputDir);
+    
+    // Connect to finished signal
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, process, progressDialog, archivePath, outputDir, archiveInfo](int exitCode, QProcess::ExitStatus exitStatus) {
+        
+        if (progressDialog) {
+            progressDialog->close();
+            progressDialog->deleteLater();
+        }
+        
+        if (exitStatus == QProcess::NormalExit && exitCode == 0) {
+            QMessageBox::information(this, "Extraction Complete",
+                QString("Archive extracted successfully to:\\n%1").arg(outputDir));
+            refreshDownloads();
+        } else {
+            QString errorOutput = process->readAllStandardError();
+            QMessageBox::critical(this, "Extraction Failed",
+                QString("Failed to extract archive: %1\\n\\nError: %2")
+                .arg(archiveInfo.fileName())
+                .arg(errorOutput.isEmpty() ? "Tool not found or extraction error" : errorOutput));
+        }
+        
+        if (process && process->state() != QProcess::NotRunning) {
+            process->terminate();
+            process->waitForFinished(1000);
+        }
+        if (process) {
+            process->deleteLater();
+        }
+    });
+    
+    // Start extraction based on file type with password support
+    bool started = false;
+    if (archivePath.endsWith(".zip", Qt::CaseInsensitive)) {
+        QStringList args;
+        args << "-o" << archivePath << "-d" << outputDir;
+        if (!password.isEmpty()) {
+            args << QString("-P%1").arg(password);
+        }
+        process->start("unzip", args);
+        started = process->waitForStarted(2000);
+    } else if (archivePath.endsWith(".rar", Qt::CaseInsensitive)) {
+        QStringList args;
+        args << "x" << "-o+";
+        if (!password.isEmpty()) {
+            args << QString("-p%1").arg(password);
+        }
+        args << archivePath << outputDir;
+        process->start("unrar", args);
+        started = process->waitForStarted(2000);
+        if (!started) {
+            args.clear();
+            args << "x" << "-y";
+            if (!password.isEmpty()) {
+                args << QString("-p%1").arg(password);
+            }
+            args << QString("-o%1").arg(outputDir) << archivePath;
+            process->start("7z", args);
+            started = process->waitForStarted(2000);
+        }
+    } else if (archivePath.endsWith(".7z", Qt::CaseInsensitive)) {
+        QStringList args;
+        args << "x" << "-y";
+        if (!password.isEmpty()) {
+            args << QString("-p%1").arg(password);
+        }
+        args << QString("-o%1").arg(outputDir) << archivePath;
+        process->start("7z", args);
+        started = process->waitForStarted(2000);
+    }
+    
+    if (!started) {
+        progressDialog->close();
+        progressDialog->deleteLater();
+        process->deleteLater();
+        QMessageBox::critical(this, "Extraction Failed",
+            QString("Failed to start extraction tool for: %1\\n\\nMake sure the required tool (unzip/unrar/7z) is installed.")
+            .arg(archiveInfo.fileName()));
+    }
+}
+
+void DownloadsFolder::deletePackage(const DownloadInfo& pkg, QTreeWidgetItem* item) {
+    QMessageBox::StandardButton reply = QMessageBox::question(this,
+        "Delete Package",
+        QString("Are you sure you want to delete:\\n%1\\n\\nSize: %2")
+            .arg(pkg.fileName)
+            .arg(formatFileSize(pkg.size)),
+        QMessageBox::Yes | QMessageBox::No);
+    
+    if (reply == QMessageBox::Yes) {
+        QFile file(pkg.path);
+        if (file.remove()) {
+            QMessageBox::information(this, "Deleted", "Package deleted successfully.");
+            refreshDownloads();
+        } else {
+            QMessageBox::critical(this, "Delete Failed",
+                QString("Failed to delete file:\\n%1\\n\\nError: %2")
+                .arg(pkg.path)
+                .arg(file.errorString()));
+        }
+    }
 }
