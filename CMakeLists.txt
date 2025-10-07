@@ -57,6 +57,7 @@ set(CORE_SOURCES
     src/core/file_format/pkg.cpp
     src/core/file_format/pkg_type.cpp
     src/core/file_format/pkg_optimized.cpp
+    src/core/update_merger.cpp
 )
 
 # PKG tool library sources
@@ -83,6 +84,19 @@ target_link_libraries(shadps4_manager_core PUBLIC
 if(WIN32)
     target_link_libraries(shadps4_manager_core PUBLIC ws2_32)
 endif()
+
+# CLI PKG Extractor Tool
+add_executable(shadps4-pkg-extractor
+    src/cli/pkg_extractor.cpp
+)
+
+target_link_libraries(shadps4-pkg-extractor PRIVATE
+    shadps4_manager_core
+)
+
+target_include_directories(shadps4-pkg-extractor PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
 
 # GUI Application
 if(BUILD_GUI)

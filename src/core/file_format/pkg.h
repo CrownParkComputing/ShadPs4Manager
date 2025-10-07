@@ -99,15 +99,56 @@ struct PKGEntry {
 };
 static_assert(sizeof(PKGEntry) == 32);
 
+// High-level metadata to display before extraction
+struct PKGMeta {
+    std::string content_id;
+    std::string title_id;
+    u32 pkg_type = 0;
+    u32 content_type = 0;
+    u32 content_flags = 0;
+    std::vector<std::string> content_flag_names;
+    u64 pkg_size = 0;
+    u64 body_size = 0;
+    u64 content_size = 0;
+    u64 pfs_image_size = 0;
+    u32 file_count = 0;
+};
+
+// Progress payload for UI
+struct PKGProgress {
+    enum class Stage {
+        Opening,
+        ReadingMetadata,
+        ParsingPFS,
+        Extracting,
+        Done,
+        Error
+    };
+    Stage stage = Stage::Opening;
+    double percent = 0.0; // 0..100
+    std::string current_file;
+    u64 files_done = 0;
+    u64 files_total = 0;
+    u64 bytes_done = 0;
+    u64 bytes_total = 0;
+    std::string message; // short status text
+};
+
 class PKG {
 public:
     PKG();
     ~PKG();
 
     bool Open(const std::filesystem::path& filepath, std::string& failreason);
-    bool ExtractFiles(const int index, std::string& failreason, const ProgressCallback& progress_callback = nullptr);
+    void ExtractFiles(const int index);
     bool Extract(const std::filesystem::path& filepath, const std::filesystem::path& extract,
-                 std::string& failreason, const ProgressCallback& progress_callback = nullptr);
+                 std::string& failreason);
+
+    // Register a progress callback (called from Open/Extract and per file)
+    void SetProgressCallback(std::function<void(const PKGProgress&)> cb);
+
+    // Get metadata to display in UI/CLI
+    PKGMeta GetMetadata() const;
 
     std::vector<u8> sfo;
 
@@ -171,4 +212,17 @@ private:
     std::filesystem::path pkgpath;
     std::filesystem::path current_dir;
     std::filesystem::path extract_path;
+
+    // Progress handling and extraction state
+    std::function<void(const PKGProgress&)> progress_cb_;
+    void reportProgress(const PKGProgress& p) const;
+    static std::vector<std::string> FlagsToNames(u32 flags);
+
+    // Running extraction totals
+    u64 extract_bytes_total_ = 0;
+    u64 extract_bytes_done_ = 0;
+    u64 extract_files_total_ = 0;
+    u64 extract_files_done_ = 0;
 };
+
+ 

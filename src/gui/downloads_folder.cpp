@@ -5,6 +5,9 @@
 #include <QHeaderView>
 #include <QRegularExpression>
 #include <QDebug>
+#include <QProcess>
+#include <QProgressDialog>
+#include <QApplication>
 #include <algorithm>
 #include <filesystem>
 #include <numeric>
@@ -171,11 +174,12 @@ void DownloadsFolder::loadPkgs() {
         return;
     }
 
-    // Look for PKG files
+    // Look for PKG files and archives
     QStringList pkgFiles = downloadsDir.entryList(QStringList{"*.pkg"}, QDir::Files);
+    QStringList archiveFiles = downloadsDir.entryList(QStringList{"*.rar", "*.zip", "*.7z"}, QDir::Files);
 
-    if (pkgFiles.isEmpty()) {
-        statusLabel->setText("No PKG files found in downloads");
+    if (pkgFiles.isEmpty() && archiveFiles.isEmpty()) {
+        statusLabel->setText("No PKG or archive files found in downloads");
         return;
     }
 
@@ -202,14 +206,35 @@ void DownloadsFolder::loadPkgs() {
         DownloadInfo pkgInfo = parsePkgInfo(pkgPath);
         downloads.append(pkgInfo);
     }
+    
+    // Add archive files as separate entries
+    for (const QString& archiveFile : archiveFiles) {
+        QString archivePath = downloadsDir.absoluteFilePath(archiveFile);
+        QFileInfo archiveInfo(archivePath);
+        
+        DownloadInfo archiveEntry;
+        archiveEntry.path = archivePath;
+        archiveEntry.fileName = archiveFile;
+        archiveEntry.gameName = archiveInfo.completeBaseName(); // Use filename without extension
+        archiveEntry.titleId = "ARCHIVE";
+        archiveEntry.contentId = "";
+        archiveEntry.size = archiveInfo.size();
+        archiveEntry.pkgType = PkgType::Unknown;
+        archiveEntry.installOrder = 0;
+        
+        downloads.append(archiveEntry);
+    }
 
     // Group games and update the tree view
     groupGamesByTitle();
     updateGameTree();
 
-    statusLabel->setText(QString("Found %1 games with %2 PKG files")
-                        .arg(gameGroups.size())
-                        .arg(downloads.size()));
+    int totalFiles = pkgFiles.size() + archiveFiles.size();
+    QString statusText = QString("Found %1 games with %2 PKG files").arg(gameGroups.size()).arg(pkgFiles.size());
+    if (!archiveFiles.isEmpty()) {
+        statusText += QString(", %1 archives").arg(archiveFiles.size());
+    }
+    statusLabel->setText(statusText);
 }
 
 void DownloadsFolder::clearPkgs() {
@@ -326,10 +351,16 @@ void DownloadsFolder::groupGamesByTitle() {
 }
 
 void DownloadsFolder::updateGameTree() {
+    if (!gameTreeWidget) {
+        return; // Safety check
+    }
+    
     gameTreeWidget->clear();
     
     for (const GameGroup& group : gameGroups) {
         auto* gameItem = new QTreeWidgetItem(gameTreeWidget);
+        if (!gameItem) continue; // Safety check
+        
         gameItem->setText(0, QString("%1 (%2)").arg(group.gameName).arg(group.titleId));
         gameItem->setText(1, QString("%1 packages").arg(group.packages.size()));
         gameItem->setText(2, "");
@@ -350,6 +381,8 @@ void DownloadsFolder::updateGameTree() {
         // Add package items
         for (const DownloadInfo& pkg : group.packages) {
             auto* pkgItem = new QTreeWidgetItem(gameItem);
+            if (!pkgItem) continue; // Safety check
+            
             pkgItem->setText(0, pkg.fileName);
             pkgItem->setToolTip(0, QString("Full path: %1").arg(pkg.path)); // Show full path on hover
             
@@ -514,8 +547,15 @@ void DownloadsFolder::onGameRightClicked(const QPoint& pos) {
     
     if (item->parent()) {
         // Package item
-        contextMenu.addAction("Extract This Package", this, &DownloadsFolder::extractGame);
-        contextMenu.addAction("Show Package Info", this, &DownloadsFolder::showGameInfo);
+        QString filePath = item->data(0, Qt::UserRole).toString();
+        if (filePath.endsWith(".pkg", Qt::CaseInsensitive)) {
+            contextMenu.addAction("Extract This Package", this, &DownloadsFolder::extractGame);
+            contextMenu.addAction("Show Package Info", this, &DownloadsFolder::showGameInfo);
+        } else if (filePath.endsWith(".rar", Qt::CaseInsensitive) || 
+                   filePath.endsWith(".zip", Qt::CaseInsensitive) ||
+                   filePath.endsWith(".7z", Qt::CaseInsensitive)) {
+            contextMenu.addAction("Extract Archive", this, &DownloadsFolder::extractArchive);
+        }
     } else {
         // Game group
         contextMenu.addAction("Install Game (In Order)", this, &DownloadsFolder::installGameInOrder);
@@ -552,6 +592,110 @@ void DownloadsFolder::extractGame() {
     QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkgPath);
 
     emit extractionRequested(pkgPath, outputDir);
+}
+
+void DownloadsFolder::extractArchive() {
+    QTreeWidgetItem* item = gameTreeWidget->currentItem();
+    if (!item || !item->parent()) return;
+    
+    QString archivePath = item->data(0, Qt::UserRole).toString();
+    if (archivePath.isEmpty()) return;
+    
+    QFileInfo archiveInfo(archivePath);
+    QString outputDir = archiveInfo.absolutePath();
+    
+    // Create progress dialog with pulsing progress bar
+    QProgressDialog* progressDialog = new QProgressDialog(this);
+    progressDialog->setWindowTitle("Archive Extraction");
+    progressDialog->setLabelText(QString("Extracting: %1\n\nPlease wait...").arg(archiveInfo.fileName()));
+    progressDialog->setWindowModality(Qt::WindowModal);
+    progressDialog->setMinimum(0);
+    progressDialog->setMaximum(0);  // Indeterminate progress bar (pulsing)
+    progressDialog->setCancelButton(nullptr);  // Don't allow cancel during extraction
+    progressDialog->setMinimumDuration(0);
+    progressDialog->show();
+    QApplication::processEvents();
+    
+    // Create process for extraction
+    QProcess* process = new QProcess(this);
+    process->setWorkingDirectory(outputDir);
+    
+    // Connect to finished signal for async completion
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, process, progressDialog, archivePath, outputDir, archiveInfo](int exitCode, QProcess::ExitStatus exitStatus) {
+        
+        if (progressDialog) {
+            progressDialog->close();
+            progressDialog->deleteLater();
+        }
+        
+        if (exitStatus == QProcess::NormalExit && exitCode == 0) {
+            QMessageBox::information(this, "Extraction Complete",
+                QString("Archive extracted successfully to:\n%1").arg(outputDir));
+            refreshDownloads();
+        } else {
+            QString errorOutput = process->readAllStandardError();
+            QMessageBox::critical(this, "Extraction Failed",
+                QString("Failed to extract archive: %1\n\nError: %2\n\nMake sure the required tool (unzip/unrar/7z) is installed.")
+                .arg(archiveInfo.fileName())
+                .arg(errorOutput.isEmpty() ? "Tool not found or extraction error" : errorOutput));
+        }
+        
+        // Ensure process is finished before deleting
+        if (process && process->state() != QProcess::NotRunning) {
+            process->terminate();
+            process->waitForFinished(1000);
+        }
+        if (process) {
+            process->deleteLater();
+        }
+    });
+    
+    // Connect to readyReadStandardOutput for progress updates
+    connect(process, &QProcess::readyReadStandardOutput, this, [process, progressDialog]() {
+        QString output = process->readAllStandardOutput();
+        // Extract filename from output if available
+        QStringList lines = output.split('\n', Qt::SkipEmptyParts);
+        if (!lines.isEmpty()) {
+            QString lastLine = lines.last().trimmed();
+            if (!lastLine.isEmpty() && lastLine.length() < 100) {
+                progressDialog->setLabelText(QString("Extracting...\n\n%1").arg(lastLine));
+            }
+        }
+        QApplication::processEvents();
+    });
+    
+    // Start extraction based on file type
+    bool started = false;
+    if (archivePath.endsWith(".zip", Qt::CaseInsensitive)) {
+        process->start("unzip", QStringList() << "-o" << archivePath << "-d" << outputDir);
+        started = process->waitForStarted(2000);
+        
+    } else if (archivePath.endsWith(".rar", Qt::CaseInsensitive)) {
+        // Try unrar first
+        process->start("unrar", QStringList() << "x" << "-o+" << archivePath << outputDir);
+        started = process->waitForStarted(2000);
+        
+        if (!started) {
+            // Fall back to 7z
+            process->start("7z", QStringList() << "x" << "-y" << QString("-o%1").arg(outputDir) << archivePath);
+            started = process->waitForStarted(2000);
+        }
+        
+    } else if (archivePath.endsWith(".7z", Qt::CaseInsensitive)) {
+        process->start("7z", QStringList() << "x" << "-y" << QString("-o%1").arg(outputDir) << archivePath);
+        started = process->waitForStarted(2000);
+    }
+    
+    if (!started) {
+        progressDialog->close();
+        progressDialog->deleteLater();
+        process->deleteLater();
+        
+        QMessageBox::critical(this, "Extraction Failed",
+            QString("Failed to start extraction tool for: %1\n\nMake sure the required tool (unzip/unrar/7z) is installed.")
+            .arg(archiveInfo.fileName()));
+    }
 }
 
 void DownloadsFolder::installGameInOrder() {

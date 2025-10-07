@@ -31,9 +31,14 @@ private:
     // Encryption/Decryption methods
     QString encryptString(const QString& plainText) const;
     QString decryptString(const QString& encryptedText) const;
+    QString decryptDefault(const QString& encryptedText) const;
     
     // Generate encryption key based on system info
     QByteArray generateKey() const;
+    
+    // Default hardcoded encrypted credentials
+    QString getDefaultClientId() const;
+    QString getDefaultClientSecret() const;
     
     QSettings m_settings;
     static const QString IGDB_CLIENT_ID_KEY;

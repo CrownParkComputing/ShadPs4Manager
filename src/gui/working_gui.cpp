@@ -9,11 +9,13 @@
 #include <QDir>
 #include <QTimer>
 #include <QProgressDialog>
+#include <QPointer>
 #include <QThread>
 #include <QStandardPaths>
 #include <QFileInfo>
 #include <QDebug>
 #include <filesystem>
+#include <algorithm>
 
 // Include new components
 #include "settings.h"
@@ -21,6 +23,8 @@
 #include "game_library.h"
 #include "downloads_folder.h"
 #include "pkg_tool/lib.h"
+#include "core/file_format/pkg.h"
+#include "core/update_merger.h"
 
 class MainWindow : public QWidget {
     Q_OBJECT
@@ -318,21 +322,22 @@ private:
                 return;
             }
 
+            // Determine if this is an update package by analyzing the filename
+            bool isUpdate = detectIfUpdate(pkgPath);
+
             // Convert Qt strings to filesystem paths
             std::filesystem::path pkgPathFs = std::filesystem::path(pkgPath.toStdString());
             std::filesystem::path outputPathFs = std::filesystem::path(outputPath.toStdString());
             
-            // First read metadata to get file count and size
-            PkgMetadata metadata;
-            auto metadataResult = ReadPkgMetadata(pkgPathFs, metadata);
-            if (metadataResult) {
-                QMessageBox::critical(this, "Extraction Error", 
-                    QString("Failed to read PKG metadata: %1\n\nFile: %2\nSize: %3 bytes")
-                    .arg(QString::fromStdString(*metadataResult))
-                    .arg(pkgPath)
-                    .arg(pkgFileInfo.size()));
+            // Read metadata via PKG class
+            PKG pkg;
+            std::string failReason;
+            if (!pkg.Open(pkgPathFs, failReason)) {
+                QMessageBox::critical(this, "Extraction Error",
+                    QString("Failed to open PKG: %1\n\nFile: %2").arg(QString::fromStdString(failReason)).arg(pkgPath));
                 return;
             }
+            const PKGMeta metadata = pkg.GetMetadata();
 
             // Validate metadata makes sense - only check PKG size, not file count
             // Note: Some PKG files report file_count as 0 but still contain extractable PFS files
@@ -345,6 +350,37 @@ private:
                 return;
             }
 
+            // Clean up any incomplete/partial extraction first
+            QDir outputDir(outputPath);
+            if (outputDir.exists()) {
+                // Check if it's a complete extraction (has param.sfo)
+                bool hasParamSfo = false;
+                QDirIterator it(outputPath, QStringList{"param.sfo"}, QDir::Files, QDirIterator::Subdirectories);
+                if (it.hasNext()) {
+                    hasParamSfo = true;
+                }
+                
+                // If no param.sfo found, this is likely incomplete - remove it
+                if (!hasParamSfo) {
+                    QMessageBox::StandardButton reply = QMessageBox::question(this,
+                        "Incomplete Extraction Detected",
+                        QString("The output directory already exists but appears incomplete:\n%1\n\nWould you like to remove it and start fresh?").arg(outputPath),
+                        QMessageBox::Yes | QMessageBox::No);
+                    
+                    if (reply == QMessageBox::Yes) {
+                        if (!outputDir.removeRecursively()) {
+                            QMessageBox::critical(this, "Cleanup Failed",
+                                QString("Failed to remove incomplete extraction directory:\n%1").arg(outputPath));
+                            return;
+                        }
+                        // Recreate the directory
+                        outputDir.mkpath(".");
+                    } else {
+                        return; // User chose not to proceed
+                    }
+                }
+            }
+            
             // Check disk space before starting extraction
             QString spaceError;
             bool hasSpace = checkDiskSpace(outputPath, metadata.pkg_size, spaceError);
@@ -372,73 +408,160 @@ private:
             progressDialog->setMinimumDuration(0);
             progressDialog->show();
 
-            // Set up progress callback with safety checks
-            ProgressCallback progressCallback = [progressDialog](const ExtractionProgress& progress) {
-                try {
-                    if (!progressDialog || progressDialog->wasCanceled()) {
-                        return; // Note: Can't cancel extraction once started
-                    }
-                    
-                    // Clamp percentage to valid range
-                    int percentage = static_cast<int>(std::min(100.0, std::max(0.0, progress.total_progress * 100)));
-                    progressDialog->setValue(percentage);
-                    
-                    // Safety check for string conversion
-                    QString fileName = "Unknown";
-                    if (!progress.current_file.empty()) {
-                        try {
-                            fileName = QString::fromStdString(progress.current_file);
-                        } catch (...) {
-                            fileName = "Invalid filename";
-                        }
-                    }
-                    
-                    progressDialog->setLabelText(QString("Extracting: %1 (%2/%3)")
-                        .arg(fileName)
-                        .arg(progress.current_file_index + 1)
-                        .arg(progress.total_files));
-                    
-                    QApplication::processEvents(); // Keep UI responsive
-                } catch (const std::exception& e) {
-                    // Don't let progress callback exceptions crash the app
-                    qDebug() << "Progress callback error:" << e.what();
-                } catch (...) {
-                    // Catch all other exceptions
-                    qDebug() << "Unknown progress callback error";
-                }
-            };
+            // Use QPointer for safe access in lambda
+            QPointer<QProgressDialog> dialogPtr(progressDialog);
 
-            // Extract all files (empty indices vector means extract all)
-            std::vector<int> indices; // Empty = extract all files
-            auto extractResult = ExtractPkg(pkgPathFs, outputPathFs, indices, progressCallback);
+            // Wire PKG progress to dialog
+            pkg.SetProgressCallback([this, dialogPtr](const PKGProgress& pr){
+                try {
+                    if (!dialogPtr) return; // Check if dialog still exists
+                    
+                    // Update progress bar
+                    int percentage = static_cast<int>(std::clamp(pr.percent, 0.0, 100.0));
+                    dialogPtr->setValue(percentage);
+                    
+                    // Build stage-specific label
+                    QString stageText;
+                    switch (pr.stage) {
+                        case PKGProgress::Stage::Opening:
+                            stageText = "Opening PKG file...";
+                            break;
+                        case PKGProgress::Stage::ReadingMetadata:
+                            stageText = "Reading PKG metadata...";
+                            break;
+                        case PKGProgress::Stage::ParsingPFS:
+                            stageText = "Parsing PFS structure...";
+                            break;
+                        case PKGProgress::Stage::Extracting:
+                            stageText = "Extracting files...";
+                            break;
+                        case PKGProgress::Stage::Done:
+                            stageText = "Extraction complete!";
+                            break;
+                        case PKGProgress::Stage::Error:
+                            stageText = "Error during extraction";
+                            break;
+                    }
+                    
+                    // Build detailed progress label
+                    QString label;
+                    if (pr.stage == PKGProgress::Stage::Extracting && pr.files_total > 0) {
+                        QString currentFile = pr.current_file.empty() ? QString("...") : QString::fromStdString(pr.current_file);
+                        label = QString("%1\n\nFile: %2\nProgress: %3 / %4 files (%5%)\nData: %6 / %7")
+                            .arg(stageText)
+                            .arg(currentFile)
+                            .arg(pr.files_done)
+                            .arg(pr.files_total)
+                            .arg(percentage)
+                            .arg(formatBytes(pr.bytes_done))
+                            .arg(formatBytes(pr.bytes_total));
+                    } else if (!pr.message.empty()) {
+                        label = QString("%1\n\n%2")
+                            .arg(stageText)
+                            .arg(QString::fromStdString(pr.message));
+                    } else {
+                        label = stageText;
+                    }
+                    
+                    dialogPtr->setLabelText(label);
+                    QApplication::processEvents();
+                } catch (...) {
+                    // Swallow any UI update exception
+                }
+            });
+            
+            QString actualExtractionPath = outputPath;
+            QString tempUpdatePath;
+            
+            // If this is an update, extract to temporary directory first
+            if (isUpdate) {
+                // Create a simpler temp path without special characters
+                QString safeTitleId = QString::fromStdString(metadata.title_id);
+                safeTitleId = safeTitleId.replace(QRegularExpression("[^A-Za-z0-9]"), "_");
+                
+                tempUpdatePath = QDir::temp().absoluteFilePath(
+                    QString("shadps4_update_%1_%2")
+                    .arg(safeTitleId)
+                    .arg(QDateTime::currentMSecsSinceEpoch())
+                );
+                
+                // Ensure the temp directory exists and is writable
+                QDir tempDir(tempUpdatePath);
+                if (!tempDir.mkpath(".")) {
+                    QMessageBox::critical(this, "Extraction Error", 
+                        QString("Failed to create temporary directory: %1").arg(tempUpdatePath));
+                    return;
+                }
+                
+                actualExtractionPath = tempUpdatePath;
+                progressDialog->setLabelText("Extracting update to temporary location...");
+            }
+            
+            bool extractSuccess = pkg.Extract(pkgPathFs, std::filesystem::path(actualExtractionPath.toStdString()), failReason);
+            
+            // If Extract succeeded, now extract all individual files
+            if (extractSuccess) {
+                uint32_t totalFiles = pkg.GetNumberOfFiles();
+                for (uint32_t i = 0; i < totalFiles; ++i) {
+                    try {
+                        pkg.ExtractFiles(static_cast<int>(i));
+                    } catch (const std::exception& e) {
+                        failReason = std::string("Failed to extract file index ") + std::to_string(i) + ": " + e.what();
+                        extractSuccess = false;
+                        break;
+                    } catch (...) {
+                        failReason = std::string("Unknown error extracting file index ") + std::to_string(i);
+                        extractSuccess = false;
+                        break;
+                    }
+                    
+                    // Dialog might be closed by user
+                    if (!dialogPtr) {
+                        extractSuccess = false;
+                        failReason = "Extraction cancelled by user";
+                        break;
+                    }
+                }
+            }
+            
+            // Handle update merging if this was an update
+            if (extractSuccess && isUpdate) {
+                progressDialog->setLabelText("Merging update files...");
+                progressDialog->setValue(95);
+                QApplication::processEvents();
+                
+                auto mergeResult = UpdateMerger::mergeUpdateToBaseGame(tempUpdatePath.toStdString(), outputPath.toStdString(), true);
+                if (!mergeResult.success) {
+                    // Clean up temp directory on failure
+                    QDir(tempUpdatePath).removeRecursively();
+                    progressDialog->close();
+                    progressDialog->deleteLater();
+                    QMessageBox::critical(this, "Update Merge Failed", 
+                        QString("Failed to merge update: %1").arg(QString::fromStdString(mergeResult.errorMessage)));
+                    return;
+                }
+                
+                // Update progress to show merge completion
+                progressDialog->setValue(100);
+                QApplication::processEvents();
+            }
+            
+            // Clear callback before deleting dialog to prevent use-after-free
+            pkg.SetProgressCallback(nullptr);
             
             progressDialog->close();
             progressDialog->deleteLater();
             
-            if (extractResult) {
-                QMessageBox::critical(this, "Extraction Failed", 
-                    QString("Failed to extract PKG file: %1").arg(QString::fromStdString(*extractResult)));
-            } else {
-                QMessageBox::information(this, "Extraction Complete", 
-                    QString("PKG file extracted successfully to:\n%1\n\nTitle ID: %2\nFiles extracted: %3\nPKG Size: %4")
-                    .arg(outputPath)
-                    .arg(QString::fromStdString(metadata.title_id))
-                    .arg(metadata.file_count)
-                    .arg(formatBytes(metadata.pkg_size)));
-                
-                // Add confirmation before continuing
-                int result = QMessageBox::question(this, "Continue?", 
-                    QString("PKG extraction completed for %1.\n\nPress 'Yes' to refresh game library and continue, or 'No' to skip refresh.")
-                    .arg(QString::fromStdString(metadata.title_id)),
-                    QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
-                
-                if (result == QMessageBox::Yes) {
-                    // Refresh the game library to show the new game
-                    gameLibrary->refreshLibrary();
-                    
-                    QMessageBox::information(this, "Refresh Complete", 
-                        "Game library refresh completed. Ready for next operation.");
+            if (!extractSuccess) {
+                // Clean up temp directory if extraction failed
+                if (isUpdate && !tempUpdatePath.isEmpty()) {
+                    QDir(tempUpdatePath).removeRecursively();
                 }
+                QMessageBox::critical(this, "Extraction Failed", 
+                    QString("Failed to extract PKG file: %1").arg(QString::fromStdString(failReason)));
+            } else {
+                // Auto-refresh the game library without confirmation
+                gameLibrary->refreshLibrary();
             }
             
         } catch (const std::bad_alloc& e) {
@@ -454,6 +577,24 @@ private:
             QMessageBox::critical(this, "Unknown Error", 
                 "An unknown error occurred during PKG extraction. The PKG file may be corrupted or invalid.");
         }
+    }
+
+    bool detectIfUpdate(const QString& pkgPath) {
+        QFileInfo fileInfo(pkgPath);
+        QString baseName = fileInfo.completeBaseName();
+        QString originalBaseName = baseName; // Keep original case for better matching
+        
+        // Check for update/patch patterns (same logic as in downloads_folder.cpp)
+        if (originalBaseName.contains("PATCH", Qt::CaseInsensitive) ||
+            originalBaseName.contains("UPDATE", Qt::CaseInsensitive) ||
+            // Only consider versions > 1.00 as updates, not v1.00 which is usually base
+            QRegularExpression("v([2-9]\\d*\\.\\d+|1\\.[1-9]\\d*|1\\.0[1-9])", QRegularExpression::CaseInsensitiveOption).match(originalBaseName).hasMatch() ||
+            // A0101 and higher (A0100 is base, A0101+ are updates)
+            QRegularExpression("A0(10[1-9]|1[1-9]\\d|[2-9]\\d\\d)", QRegularExpression::CaseInsensitiveOption).match(originalBaseName).hasMatch()) {
+            return true;
+        }
+        
+        return false;
     }
 
 private:

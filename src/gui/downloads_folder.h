@@ -62,6 +62,7 @@ private slots:
     void onGameDoubleClicked(QTreeWidgetItem* item, int column);
     void onGameRightClicked(const QPoint& pos);
     void extractGame();
+    void extractArchive();
     void extractSelectedPkgs();
     void showGameInfo();
     void installGameInOrder();

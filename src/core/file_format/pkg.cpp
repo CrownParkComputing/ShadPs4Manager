@@ -1,6 +1,10 @@
 // SPDX-FileCopyrightText: Copyright 2024 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include <iostream>
+#include <cstring>
+#include <algorithm>
+#include <chrono>
 #include "zlib/zlib.h"
 #include "common/io_file.h"
 #include "core/file_format/pkg.h"
@@ -34,14 +38,14 @@ static bool StreamingDecompressPFSC(std::span<char> compressed_data, std::span<c
     return true;
 }
 
-static void DecompressPFSC(std::span<char> compressed_data, std::span<char> decompressed_data) {
+static bool DecompressPFSC(std::span<char> compressed_data, std::span<char> decompressed_data) {
     z_stream decompressStream;
     decompressStream.zalloc = Z_NULL;
     decompressStream.zfree = Z_NULL;
     decompressStream.opaque = Z_NULL;
 
     if (inflateInit(&decompressStream) != Z_OK) {
-        // std::cerr << "Error initializing zlib for deflation." << std::endl;
+        return false; // Failed to initialize
     }
 
     decompressStream.avail_in = compressed_data.size();
@@ -49,11 +53,14 @@ static void DecompressPFSC(std::span<char> compressed_data, std::span<char> deco
     decompressStream.avail_out = decompressed_data.size();
     decompressStream.next_out = reinterpret_cast<unsigned char*>(decompressed_data.data());
 
-    if (inflate(&decompressStream, Z_FINISH)) {
-    }
+    int result = inflate(&decompressStream, Z_FINISH);
+    bool success = (result == Z_STREAM_END);
+    
     if (inflateEnd(&decompressStream) != Z_OK) {
-        // std::cerr << "Error ending zlib inflate" << std::endl;
+        success = false;
     }
+    
+    return success;
 }
 
 u32 GetPFSCOffset(std::span<const u8> pfs_image) {
@@ -71,9 +78,53 @@ PKG::PKG() = default;
 
 PKG::~PKG() = default;
 
+void PKG::SetProgressCallback(std::function<void(const PKGProgress&)> cb) {
+    progress_cb_ = std::move(cb);
+}
+
+void PKG::reportProgress(const PKGProgress& p) const {
+    if (progress_cb_) progress_cb_(p);
+}
+
+std::vector<std::string> PKG::FlagsToNames(u32 flags) {
+    std::vector<std::string> names;
+    for (const auto& [flag, name] : flagNames) {
+        if ((flags & static_cast<u32>(flag)) != 0) names.emplace_back(name);
+    }
+    return names;
+}
+
+PKGMeta PKG::GetMetadata() const {
+    PKGMeta m{};
+    // Content ID is 0x24 bytes; trim trailing nulls
+    m.content_id.assign(reinterpret_cast<const char*>(pkgheader.pkg_content_id),
+                        reinterpret_cast<const char*>(pkgheader.pkg_content_id) + 0x24);
+    if (auto pos = m.content_id.find('\0'); pos != std::string::npos) m.content_id.resize(pos);
+
+    m.title_id = std::string(pkgTitleID, pkgTitleID + 9);
+    m.pkg_type = static_cast<u32>(pkgheader.pkg_type);
+    m.content_type = static_cast<u32>(pkgheader.pkg_content_type);
+    m.content_flags = static_cast<u32>(pkgheader.pkg_content_flags);
+    m.content_flag_names = FlagsToNames(m.content_flags);
+    m.pkg_size = pkgSize ? pkgSize : static_cast<u64>(pkgheader.pkg_size);
+    m.body_size = static_cast<u64>(pkgheader.pkg_body_size);
+    m.content_size = static_cast<u64>(pkgheader.pkg_content_size);
+    m.pfs_image_size = static_cast<u64>(pkgheader.pfs_image_size);
+    m.file_count = static_cast<u32>(pkgheader.pkg_file_count);
+    return m;
+}
+
 bool PKG::Open(const std::filesystem::path& filepath, std::string& failreason) {
+    PKGProgress prog{};
+    prog.stage = PKGProgress::Stage::Opening;
+    prog.message = "Opening PKG";
+    reportProgress(prog);
+
     Common::FS::IOFile file(filepath, Common::FS::FileAccessMode::Read);
     if (!file.IsOpen()) {
+        prog.stage = PKGProgress::Stage::Error;
+        prog.message = "Failed to open PKG";
+        reportProgress(prog);
         return false;
     }
     pkgSize = file.GetSize();
@@ -126,15 +177,28 @@ bool PKG::Open(const std::filesystem::path& filepath, std::string& failreason) {
     }
     file.Close();
 
+    // Metadata available
+    prog.stage = PKGProgress::Stage::ReadingMetadata;
+    prog.message = "Metadata parsed";
+    reportProgress(prog);
+
     return true;
 }
 
 bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::path& extract,
-                  std::string& failreason, const ProgressCallback& progress_callback) {
+                  std::string& failreason) {
+    PKGProgress prog{};
+    prog.stage = PKGProgress::Stage::ParsingPFS;
+    prog.message = "Preparing extraction";
+    reportProgress(prog);
+
     extract_path = extract;
     pkgpath = filepath;
     Common::FS::IOFile file(filepath, Common::FS::FileAccessMode::Read);
     if (!file.IsOpen()) {
+        prog.stage = PKGProgress::Stage::Error;
+        prog.message = "Failed to open PKG";
+        reportProgress(prog);
         return false;
     }
     pkgSize = file.GetSize();
@@ -145,10 +209,14 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
 
     if (pkgheader.pkg_size > pkgSize) {
         failreason = "PKG file size is different";
+        prog.stage = PKGProgress::Stage::Error;
+        reportProgress(prog);
         return false;
     }
     if ((pkgheader.pkg_content_size + pkgheader.pkg_content_offset) > pkgheader.pkg_size) {
         failreason = "Content size is bigger than pkg size";
+        prog.stage = PKGProgress::Stage::Error;
+        reportProgress(prog);
         return false;
     }
 
@@ -192,33 +260,10 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
                 return false;
             }
 
-            // Use optimized extraction for large unnamed entries
-            if (entry.size > 50 * 1024 * 1024) {
-                auto progressCallback = [&](double progress) {
-                    if (progress_callback) {
-                        ExtractionProgress cb_progress{
-                            .current_file = "Entry " + std::to_string(entry.id),
-                            .total_files = static_cast<size_t>(n_files),
-                            .current_file_index = static_cast<size_t>(i),
-                            .file_progress = progress,
-                            .total_progress = (static_cast<double>(i) + progress) / n_files
-                        };
-                        progress_callback(cb_progress);
-                    }
-                };
-                
-                if (!PKGOptimized::ChunkedFileCopy(file, out, entry.size, 
-                                                  "Entry " + std::to_string(entry.id),
-                                                  progressCallback)) {
-                    failreason = "Failed to extract large unnamed entry";
-                    return false;
-                }
-            } else {
-                std::vector<u8> data;
-                data.resize(entry.size);
-                file.ReadRaw<u8>(data.data(), entry.size);
-                out.WriteRaw<u8>(data.data(), entry.size);
-            }
+            std::vector<u8> data;
+            data.resize(entry.size);
+            file.ReadRaw<u8>(data.data(), entry.size);
+            out.WriteRaw<u8>(data.data(), entry.size);
             out.Close();
 
             file.Seek(currentPos);
@@ -264,34 +309,10 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
             return false;
         }
 
-        // Use optimized extraction for large entries (>50MB)
-        if (entry.size > 50 * 1024 * 1024) {
-            auto progressCallback = [&](double progress) {
-                if (progress_callback) {
-                    ExtractionProgress cb_progress{
-                        .current_file = std::string(name),
-                        .total_files = static_cast<size_t>(n_files),
-                        .current_file_index = static_cast<size_t>(i),
-                        .file_progress = progress,
-                        .total_progress = (static_cast<double>(i) + progress) / n_files
-                    };
-                    progress_callback(cb_progress);
-                }
-            };
-            
-            if (!PKGOptimized::ExtractLargeEntry(file, entry, 
-                                                extract_path / "sce_sys" / name,
-                                                std::string(name), progressCallback)) {
-                failreason = "Failed to extract large entry: " + std::string(name);
-                return false;
-            }
-        } else {
-            // Use original method for smaller files
-            std::vector<u8> data;
-            data.resize(entry.size);
-            file.ReadRaw<u8>(data.data(), entry.size);
-            out.WriteRaw<u8>(data.data(), entry.size);
-        }
+        std::vector<u8> data;
+        data.resize(entry.size);
+        file.ReadRaw<u8>(data.data(), entry.size);
+        out.WriteRaw<u8>(data.data(), entry.size);
         out.Close();
 
         // Decrypt Np stuff and overwrite.
@@ -303,45 +324,21 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
                 return false;
             }
 
-            // For large entries, use optimized extraction
-            if (entry.size > 50 * 1024 * 1024) {
-                auto progressCallback = [&](double progress) {
-                    if (progress_callback) {
-                        ExtractionProgress cb_progress{
-                            .current_file = std::string(name),
-                            .total_files = static_cast<size_t>(n_files),
-                            .current_file_index = static_cast<size_t>(i),
-                            .file_progress = progress,
-                            .total_progress = (static_cast<double>(i) + progress) / n_files
-                        };
-                        progress_callback(cb_progress);
-                    }
-                };
-                
-                if (!PKGOptimized::ExtractLargeEntry(file, entry, 
-                                                    extract_path / "sce_sys" / name,
-                                                    std::string(name), progressCallback)) {
-                    failreason = "Failed to extract large encrypted entry: " + std::string(name);
-                    return false;
-                }
-            } else {
-                // Use original method for smaller files
-                std::vector<u8> data;
-                data.resize(entry.size);
-                file.ReadRaw<u8>(data.data(), entry.size);
+            std::vector<u8> data;
+            data.resize(entry.size);
+            file.ReadRaw<u8>(data.data(), entry.size);
 
-                std::span<u8> cipherNp(data.data(), entry.size);
-                std::array<u8, 64> concatenated_ivkey_dk3_;
-                std::memcpy(concatenated_ivkey_dk3_.data(), &entry, sizeof(entry));
-                std::memcpy(concatenated_ivkey_dk3_.data() + sizeof(entry), dk3_.data(), sizeof(dk3_));
-                PKG::crypto.ivKeyHASH256(concatenated_ivkey_dk3_, ivKey);
-                PKG::crypto.aesCbcCfb128DecryptEntry(ivKey, cipherNp, decNp);
+            std::span<u8> cipherNp(data.data(), entry.size);
+            std::array<u8, 64> concatenated_ivkey_dk3_;
+            std::memcpy(concatenated_ivkey_dk3_.data(), &entry, sizeof(entry));
+            std::memcpy(concatenated_ivkey_dk3_.data() + sizeof(entry), dk3_.data(), sizeof(dk3_));
+            PKG::crypto.ivKeyHASH256(concatenated_ivkey_dk3_, ivKey);
+            PKG::crypto.aesCbcCfb128DecryptEntry(ivKey, cipherNp, decNp);
 
-                Common::FS::IOFile out(extract_path / "sce_sys" / name,
-                                       Common::FS::FileAccessMode::Write);
-                out.Write(decNp);
-                out.Close();
-            }
+            Common::FS::IOFile out(extract_path / "sce_sys" / name,
+                                   Common::FS::FileAccessMode::Write);
+            out.Write(decNp);
+            out.Close();
         }
 
         file.Seek(currentPos);
@@ -357,32 +354,100 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
 
     // Get data and tweak keys.
     PKG::crypto.PfsGenCryptoKey(ekpfsKey, seed, dataKey, tweakKey);
-    const u32 length = pkgheader.pfs_cache_size * 0x2; // Seems to be ok.
+    const u32 length = pkgheader.pfs_cache_size * 0x2;
 
+    // Declare pfsc outside the block so it persists for iteration
     int num_blocks = 0;
-    std::vector<u8> pfsc(length);
+    std::vector<u8> pfsc;
+    
+    // Debug: Print length immediately
+    {
+        PKGProgress len_prog{};
+        len_prog.stage = PKGProgress::Stage::ParsingPFS;
+        len_prog.message = "PFS cache length: " + std::to_string(length) + " bytes (pfs_cache_size=" + std::to_string(pkgheader.pfs_cache_size) + ")";
+        if (progress_cb_) {
+            progress_cb_(len_prog);
+        }
+    }
+    
+    if (length == 0) {
+        failreason = "PFS cache size is 0 - cannot extract";
+        prog.stage = PKGProgress::Stage::Error;
+        prog.message = failreason;
+        reportProgress(prog);
+        return false;
+    }
+    
     if (length != 0) {
-        // Read encrypted pfs_image
+        // Read the full PFS cache region
         std::vector<u8> pfs_encrypted(length);
+        std::vector<u8> pfs_decrypted(length);
+        
         file.Seek(pkgheader.pfs_image_offset);
         file.Read(pfs_encrypted);
         file.Close();
-        // Decrypt the pfs_image.
-        std::vector<u8> pfs_decrypted(length);
+        
+        // Decrypt the entire PFS cache region once
         PKG::crypto.decryptPFS(dataKey, tweakKey, pfs_encrypted, pfs_decrypted, 0);
-
-        // Retrieve PFSC from decrypted pfs_image.
+        
+        // Find PFSC offset in the decrypted data
         pfsc_offset = GetPFSCOffset(pfs_decrypted);
+        
+        if (pfsc_offset == static_cast<u32>(-1)) {
+            failreason = "Could not find PFSC in PFS image";
+            prog.stage = PKGProgress::Stage::Error;
+            prog.message = failreason;
+            reportProgress(prog);
+            return false;
+        }
+        
+        // Copy the PFSC structure into memory for parsing
+        if (pfsc_offset >= pfs_decrypted.size()) {
+            failreason = "PFSC offset is beyond decrypted data size";
+            prog.stage = PKGProgress::Stage::Error;
+            prog.message = failreason;
+            reportProgress(prog);
+            return false;
+        }
+        
+        pfsc.resize(length - pfsc_offset);
         std::memcpy(pfsc.data(), pfs_decrypted.data() + pfsc_offset, length - pfsc_offset);
-
+        
+        // Read PFSC header to get block information
         PFSCHdr pfsChdr;
+        if (sizeof(pfsChdr) > pfsc.size()) {
+            failreason = "PFSC buffer too small for header";
+            prog.stage = PKGProgress::Stage::Error;
+            prog.message = failreason;
+            reportProgress(prog);
+            return false;
+        }
         std::memcpy(&pfsChdr, pfsc.data(), sizeof(pfsChdr));
-
-        num_blocks = (int)(pfsChdr.data_length / pfsChdr.block_sz2);
-        sectorMap.resize(num_blocks + 1); // 8 bytes, need extra 1 to get the last offset.
-
+        
+        num_blocks = static_cast<int>(pfsChdr.data_length / pfsChdr.block_sz2);
+        
+        // Build sector map from PFSC header
+        sectorMap.resize(num_blocks + 1);
         for (int i = 0; i < num_blocks + 1; i++) {
-            std::memcpy(&sectorMap[i], pfsc.data() + pfsChdr.block_offsets + i * 8, 8);
+            u32 map_offset = pfsChdr.block_offsets + i * 8;
+            if (map_offset + 8 > pfsc.size()) {
+                failreason = "Sector map offset exceeds PFSC size";
+                prog.stage = PKGProgress::Stage::Error;
+                prog.message = failreason;
+                reportProgress(prog);
+                return false;
+            }
+            std::memcpy(&sectorMap[i], pfsc.data() + map_offset, 8);
+        }
+        
+        // Report parsing parameters (force without throttling)
+        PKGProgress parse_init{};
+        parse_init.stage = PKGProgress::Stage::ParsingPFS;
+        parse_init.message = "PFS blocks: " + std::to_string(num_blocks) + ", PFSC offset: 0x" + 
+                           std::to_string(pfsc_offset) + ", PFSC size: " + std::to_string(pfsc.size());
+        // Force reportProgress to ensure this message gets through
+        if (progress_cb_) {
+            progress_cb_(parse_init);
         }
     }
 
@@ -393,22 +458,62 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
     bool uroot_reached = false;
     std::vector<char> compressedData;
     std::vector<char> decompressedData(0x10000);
+    
+    // Safety: Reserve reasonable capacity to avoid reallocations
+    fsTable.reserve(50000);
+    iNodeBuf.reserve(50000);
 
-    // Get iNdoes and Dirents.
+    // Get iNodes and Dirents - data is already decrypted in pfsc buffer
+    prog.stage = PKGProgress::Stage::ParsingPFS;
+    prog.message = "Parsing PFS";
+    reportProgress(prog);
+    
+    auto last_progress_time = std::chrono::steady_clock::now();
+    
+    // Get iNodes and Dirents - iterate through all blocks
     for (int i = 0; i < num_blocks; i++) {
+        // Report parsing progress every 100ms
+        auto now = std::chrono::steady_clock::now();
+        if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_progress_time).count() >= 100) {
+            PKGProgress parse_prog{};
+            parse_prog.stage = PKGProgress::Stage::ParsingPFS;
+            parse_prog.message = "Parsing PFS structure";
+            parse_prog.percent = (static_cast<double>(i) / num_blocks) * 50.0; // 0-50% for parsing
+            reportProgress(parse_prog);
+            last_progress_time = now;
+        }
+        
         const u64 sectorOffset = sectorMap[i];
         const u64 sectorSize = sectorMap[i + 1] - sectorOffset;
 
         compressedData.resize(sectorSize);
         std::memcpy(compressedData.data(), pfsc.data() + sectorOffset, sectorSize);
 
-        if (sectorSize == 0x10000) // Uncompressed data
+        if (sectorSize == 0x10000) { // Uncompressed data
             std::memcpy(decompressedData.data(), compressedData.data(), 0x10000);
-        else if (sectorSize < 0x10000) // Compressed data
-            DecompressPFSC(compressedData, decompressedData);
+        } else if (sectorSize < 0x10000) { // Compressed data
+            if (!DecompressPFSC(compressedData, decompressedData)) {
+                continue; // Skip this block if decompression failed
+            }
+        } else {
+            continue; // Skip blocks with invalid size
+        }
 
         if (i == 0) {
             std::memcpy(&ndinode, decompressedData.data() + 0x30, 4); // number of folders and files
+            
+            // Safety check: Reject obviously corrupted values
+            if (ndinode > 500000) {
+                failreason = "PFS appears corrupted: too many inodes";
+                return false;
+            }
+            
+            // Report expected file count
+            PKGProgress inode_prog{};
+            inode_prog.stage = PKGProgress::Stage::ParsingPFS;
+            inode_prog.message = "Expecting " + std::to_string(ndinode) + " entries";
+            inode_prog.percent = 1.0;
+            reportProgress(inode_prog);
         }
 
         int occupied_blocks =
@@ -418,11 +523,17 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
 
         if (i >= 1 && i <= occupied_blocks) { // Get all iNodes, gives type, file size and location.
             for (int p = 0; p < 0x10000; p += 0xA8) {
+                // Bounds check before accessing decompressed data
+                if (p + sizeof(Inode) > decompressedData.size()) {
+                    break; // Prevent buffer overflow
+                }
+                
                 Inode node;
                 std::memcpy(&node, &decompressedData[p], sizeof(node));
                 if (node.Mode == 0) {
                     break;
                 }
+                
                 iNodeBuf.push_back(node);
             }
         }
@@ -479,9 +590,11 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
                 table.inode = dirent.ino;
                 table.type = dirent.type;
 
+                // Handle current directory marker - updates current_dir
                 if (table.type == PFS_CURRENT_DIR) {
                     current_dir = extractPaths[table.inode];
                 }
+                // Always update the path for this inode
                 extractPaths[table.inode] = current_dir / std::filesystem::path(table.name);
 
                 if (table.type == PFS_FILE || table.type == PFS_DIR) {
@@ -498,10 +611,46 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
             }
         }
     }
+    
+    // Report what we found
+    PKGProgress found_prog{};
+    found_prog.stage = PKGProgress::Stage::ParsingPFS;
+    found_prog.message = "Found " + std::to_string(fsTable.size()) + " entries";
+    found_prog.percent = 50.0;
+    reportProgress(found_prog);
+    
+    // Compute totals for extraction progress
+    extract_files_total_ = 0;
+    extract_bytes_total_ = 0;
+    for (const auto& ent : fsTable) {
+        if (ent.type == PFS_FILE) {
+            extract_files_total_++;
+            int inode = ent.inode;
+            if (inode >= 0 && inode < static_cast<int>(iNodeBuf.size())) {
+                extract_bytes_total_ += static_cast<u64>(iNodeBuf[inode].Size);
+            }
+        }
+    }
+    extract_files_done_ = 0;
+    extract_bytes_done_ = 0;
+
+    // Report parsing complete
+    prog.stage = PKGProgress::Stage::ParsingPFS;
+    prog.message = "PFS parsing complete";
+    prog.files_total = extract_files_total_;
+    prog.bytes_total = extract_bytes_total_;
+    prog.percent = 50.0;
+    reportProgress(prog);
+
     return true;
 }
 
-bool PKG::ExtractFiles(const int index, std::string& failreason, const ProgressCallback& progress_callback) {
+void PKG::ExtractFiles(const int index) {
+    // Bounds check for index
+    if (index < 0 || index >= static_cast<int>(fsTable.size())) {
+        return; // Invalid index
+    }
+    
     int inode_number = fsTable[index].inode;
     int inode_type = fsTable[index].type;
     std::string inode_name = fsTable[index].name;
@@ -510,42 +659,32 @@ bool PKG::ExtractFiles(const int index, std::string& failreason, const ProgressC
         int sector_loc = iNodeBuf[inode_number].loc;
         int nblocks = iNodeBuf[inode_number].Blocks;
         int bsize = iNodeBuf[inode_number].Size;
-        int size_decompressed = 0;
 
         Common::FS::IOFile inflated;
         inflated.Open(extractPaths[inode_number], Common::FS::FileAccessMode::Write);
 
-        Common::FS::IOFile pkgFile;
+        Common::FS::IOFile pkgFile; // Open the file for each iteration to avoid conflict.
         pkgFile.Open(pkgpath, Common::FS::FileAccessMode::Read);
 
+        int size_decompressed = 0;
         std::vector<char> compressedData;
         std::vector<char> decompressedData(0x10000);
 
-        z_stream stream{};
-        bool stream_initialized = false;
-
-        // Setup progress tracking
-        ExtractionProgress progress{
-            .current_file = inode_name,
-            .total_files = fsTable.size(),
-            .current_file_index = static_cast<size_t>(index),
-            .file_progress = 0.0,
-            .total_progress = static_cast<double>(index) / fsTable.size()
-        };
-
-        if (progress_callback) {
-            progress_callback(progress);
-        }
-
-        u64 pfsc_buf_size = 0x11000;
+        u64 pfsc_buf_size = 0x11000; // extra 0x1000
         std::vector<u8> pfsc(pfsc_buf_size);
         std::vector<u8> pfs_decrypted(pfsc_buf_size);
+        
+        // Throttle progress updates to avoid UI freeze
+        auto last_block_progress = std::chrono::steady_clock::now();
 
         for (int j = 0; j < nblocks; j++) {
-            u64 sectorOffset = sectorMap[sector_loc + j];
-            u64 sectorSize = sectorMap[sector_loc + j + 1] - sectorOffset;
+            u64 sectorOffset =
+                sectorMap[sector_loc + j]; // offset into PFSC_image and not pfs_image.
+            u64 sectorSize = sectorMap[sector_loc + j + 1] -
+                             sectorOffset; // indicates if data is compressed or not.
             u64 fileOffset = (pkgheader.pfs_image_offset + pfsc_offset + sectorOffset);
-            u64 currentSector1 = (pfsc_offset + sectorOffset) / 0x1000;
+            u64 currentSector1 =
+                (pfsc_offset + sectorOffset) / 0x1000; // block size is 0x1000 for xts decryption.
 
             int sectorOffsetMask = (sectorOffset + pfsc_offset) & 0xFFFFF000;
             int previousData = (sectorOffset + pfsc_offset) - sectorOffsetMask;
@@ -558,49 +697,65 @@ bool PKG::ExtractFiles(const int index, std::string& failreason, const ProgressC
             compressedData.resize(sectorSize);
             std::memcpy(compressedData.data(), pfs_decrypted.data() + previousData, sectorSize);
 
-            if (sectorSize == 0x10000) {
+            if (sectorSize == 0x10000) // Uncompressed data
                 std::memcpy(decompressedData.data(), compressedData.data(), 0x10000);
-            } else if (sectorSize < 0x10000) {
-                if (!StreamingDecompressPFSC(compressedData, decompressedData, stream_initialized, stream)) {
-                    failreason = "Decompression failed";
-                    if (stream_initialized) {
-                        inflateEnd(&stream);
-                    }
-                    pkgFile.Close();
-                    inflated.Close();
-                    return false;
-                }
-            }
-
-            if (progress_callback) {
-                progress.file_progress = static_cast<double>(j + 1) / nblocks;
-                progress.total_progress = (static_cast<double>(index) + progress.file_progress) / fsTable.size();
-                
-                // Report progress more frequently for large files (every 1% or every block, whichever is more frequent)
-                static int lastReportedPercent = -1;
-                int currentPercent = static_cast<int>(progress.file_progress * 100);
-                if (currentPercent != lastReportedPercent || j % 10 == 0) {
-                    progress_callback(progress);
-                    lastReportedPercent = currentPercent;
-                }
-            }
+            else if (sectorSize < 0x10000) // Compressed data
+                DecompressPFSC(compressedData, decompressedData);
 
             size_decompressed += 0x10000;
+
+            // Update per-block progress using decompressed chunk size (throttled to 100ms)
+            auto now = std::chrono::steady_clock::now();
+            if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_block_progress).count() >= 100) {
+                u64 file_size = static_cast<u64>(bsize);
+                u64 new_done = std::min<u64>(static_cast<u64>(size_decompressed), file_size);
+                // Update global counters if available
+                if (extract_bytes_total_ > 0) {
+                    PKGProgress blk{};
+                    blk.stage = PKGProgress::Stage::Extracting;
+                    blk.current_file = inode_name;
+                    blk.files_total = extract_files_total_;
+                    blk.files_done = extract_files_done_;
+                    blk.bytes_total = extract_bytes_total_;
+                    blk.bytes_done = extract_bytes_done_ + new_done;
+                    blk.percent = std::min(100.0, 100.0 * static_cast<double>(blk.bytes_done) / static_cast<double>(blk.bytes_total));
+                    blk.message = "Extracting " + inode_name;
+                    reportProgress(blk);
+                    last_block_progress = now;
+                }
+            }
 
             if (j < nblocks - 1) {
                 inflated.WriteRaw<u8>(decompressedData.data(), decompressedData.size());
             } else {
+                // This is to remove the zeros at the end of the file.
                 const u32 write_size = decompressedData.size() - (size_decompressed - bsize);
                 inflated.WriteRaw<u8>(decompressedData.data(), write_size);
             }
         }
-
-        if (stream_initialized) {
-            inflateEnd(&stream);
-        }
         pkgFile.Close();
         inflated.Close();
     }
-
-    return true;
-}
+    
+    // Update global extraction counters after file completes
+    extract_files_done_++;
+    if (inode_number >= 0 && inode_number < static_cast<int>(iNodeBuf.size())) {
+        extract_bytes_done_ += static_cast<u64>(iNodeBuf[inode_number].Size);
+    }
+    
+    // Report file completion
+    PKGProgress file_done{};
+    file_done.stage = PKGProgress::Stage::Extracting;
+    file_done.current_file = inode_name;
+    file_done.files_total = extract_files_total_;
+    file_done.files_done = extract_files_done_;
+    file_done.bytes_total = extract_bytes_total_;
+    file_done.bytes_done = extract_bytes_done_;
+    if (extract_bytes_total_ > 0) {
+        file_done.percent = std::min(100.0, 100.0 * static_cast<double>(file_done.bytes_done) / static_cast<double>(file_done.bytes_total));
+    } else if (extract_files_total_ > 0) {
+        file_done.percent = std::min(100.0, 100.0 * static_cast<double>(file_done.files_done) / static_cast<double>(file_done.files_total));
+    }
+    file_done.message = "Extracted " + inode_name;
+    reportProgress(file_done);
+} // End of ExtractFiles function

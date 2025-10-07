@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QApplication>
 
 
 
@@ -180,7 +181,8 @@ void GameLibrary::loadGames() {
 
         GameInfo gameInfo = parseGameInfo(gamePath);
 
-        if (!gameInfo.name.isEmpty()) {
+        // Skip corrupted or incomplete game directories
+        if (!gameInfo.name.isEmpty() && gameInfo.titleId != "CORRUPTED") {
             games.append(gameInfo);
 
             // Create GameEntry for the new GameCard
@@ -229,13 +231,28 @@ void GameLibrary::loadGames() {
 }
 
 void GameLibrary::clearGames() {
-    // Clear existing cards
+    // Clear existing cards safely
     for (GameCard* card : gameCards) {
-        cardsLayout->removeWidget(card);
-        card->deleteLater();
+        if (card) {
+            // Disconnect only our custom signals (not Qt internal ones)
+            disconnect(card, &GameCard::launchRequested, this, nullptr);
+            disconnect(card, &GameCard::settingsRequested, this, nullptr);
+            disconnect(card, &GameCard::infoRequested, this, nullptr);
+            disconnect(card, &GameCard::killRequested, this, nullptr);
+            disconnect(card, &GameCard::deleteRequested, this, nullptr);
+            disconnect(card, &GameCard::refreshIgdbData, this, nullptr);
+            disconnect(card, &GameCard::igdbCoverImageRequested, this, nullptr);
+            // Remove from layout
+            cardsLayout->removeWidget(card);
+            // Delete the widget safely
+            card->deleteLater();
+        }
     }
     gameCards.clear();
     games.clear();
+    
+    // Process pending delete events immediately
+    QCoreApplication::processEvents();
 }
 
 void GameLibrary::arrangeGameCards() {
@@ -263,9 +280,10 @@ GameInfo GameLibrary::parseGameInfo(const QString& gamePath) {
     GameInfo info;
     info.path = gamePath;
 
-    QFileInfo fileInfo(gamePath);
-    info.name = fileInfo.baseName();
-    info.size = calculateDirectorySize(gamePath);
+    try {
+        QFileInfo fileInfo(gamePath);
+        info.name = fileInfo.baseName();
+        info.size = calculateDirectorySize(gamePath);
 
     // Try to read game metadata from common locations
     QDir gameDir(gamePath);
@@ -308,7 +326,18 @@ GameInfo GameLibrary::parseGameInfo(const QString& gamePath) {
         info.version = "1.00";
     }
 
-    return info;
+        return info;
+    } catch (const std::exception& e) {
+        // Return empty info for corrupted directories
+        info.name = "";
+        info.titleId = "CORRUPTED";
+        return info;
+    } catch (...) {
+        // Return empty info for any unknown error
+        info.name = "";
+        info.titleId = "CORRUPTED";
+        return info;
+    }
 }
 
 void GameLibrary::extractGame() {
