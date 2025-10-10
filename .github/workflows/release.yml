@@ -1,247 +1,107 @@
-name: Release
-
 on:
-  workflow_dispatch:
-    inputs:
-      version_bump:
-        description: 'Version bump type'
-        required: true
-        default: 'patch'
-        type: choice
-        options:
-        - patch
-        - minor
-        - major
-      create_release:
-        description: 'Create GitHub release'
-        required: true
-        default: true
-        type: boolean
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
 
 jobs:
-  bump-version:
-    runs-on: ubuntu-latest
-    outputs:
-      new_version: ${{ steps.bump.outputs.new_version }}
-      
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        submodules: recursive
-        token: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Configure Git
-      run: |
-        git config user.name "github-actions[bot]"
-        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        
-    - name: Bump version
-      id: bump
-      run: |
-        chmod +x build.sh
-        
-        # Get current version
-        CURRENT_VERSION=$(grep "project.*VERSION" CMakeLists.txt | sed -n 's/.*VERSION \([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
-        echo "Current version: $CURRENT_VERSION"
-        
-        # Bump version
-        ./build.sh ${{ github.event.inputs.version_bump }}
-        
-        # Get new version
-        NEW_VERSION=$(grep "project.*VERSION" CMakeLists.txt | sed -n 's/.*VERSION \([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
-        echo "New version: $NEW_VERSION"
-        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-        
-        # Push changes
-        git push origin main
-        git push origin "v$NEW_VERSION"
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  build-linux:
-    needs: bump-version
-    runs-on: ubuntu-22.04
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        ref: main
-        
-    - name: Set up build environment
-      run: |
-        sudo apt update
-        sudo apt install -y \
-          cmake \
-          build-essential \
-          qt6-base-dev \
-          qt6-multimedia-dev \
-          libgl1-mesa-dev \
-          libglu1-mesa-dev \
-          libxrandr-dev \
-          libxinerama-dev \
-          libxcursor-dev \
-          libxi-dev \
-          pkg-config \
-          ninja-build
-          
-    - name: Configure external dependencies
-      run: |
-        cd external/zlib
-        ./configure
-          
-    - name: Build
-      run: |
-        cmake -B build \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_CXX_COMPILER=g++ \
-          -DBUILD_GUI=ON
-        cmake --build build --config Release -j$(nproc)
-        
-    - name: Create distribution
-      run: |
-        VERSION="${{ needs.bump-version.outputs.new_version }}"
-        DIST_NAME="ShadPs4Manager-${VERSION}-linux-x64"
-        mkdir -p dist/$DIST_NAME
-        
-        # Copy binaries
-        cp build/bin/shadps4-manager-gui dist/$DIST_NAME/
-        cp build/bin/shadps4-pkg-extractor dist/$DIST_NAME/
-        
-        # Make executable
-        chmod +x dist/$DIST_NAME/shadps4-manager-gui
-        chmod +x dist/$DIST_NAME/shadps4-pkg-extractor
-        
-        # Copy documentation
-        cp README.md dist/$DIST_NAME/ 2>/dev/null || true
-        cp LICENSE dist/$DIST_NAME/ 2>/dev/null || true
-        
-        # Create archive
-        cd dist
-        tar -czf ${DIST_NAME}.tar.gz $DIST_NAME
-        cd ..
-        
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: linux-release
-        path: dist/*.tar.gz
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ccache
+        shell: bash
 
-  build-windows:
-    needs: bump-version
-    runs-on: windows-2022
-    
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        ref: main
-        
-    - name: Set up MSVC
-      uses: microsoft/setup-msbuild@v1.3
-      
-    - name: Install Qt
-      uses: jurplel/install-qt-action@v4
-      with:
-        version: '6.6.0'
-        host: 'windows'
-        target: 'desktop'
-        arch: 'win64_msvc2019_64'
-        modules: 'qtmultimedia'
-        cache: true
-        
-    - name: Configure external dependencies
-      run: |
-        # For Windows, copy zconf.h.in to zconf.h if it doesn't exist
-        if (!(Test-Path "external/zlib/zconf.h")) {
-          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
-          Write-Host "Generated zconf.h from zconf.h.in"
-        } else {
-          Write-Host "zconf.h already exists"
-        }
-      shell: powershell
-        
-    - name: Build
-      run: |
-        cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DBUILD_GUI=ON
-        cmake --build build --config Release -j
-      shell: powershell
-      
-    - name: Create distribution
-      run: |
-        $VERSION = "${{ needs.bump-version.outputs.new_version }}"
-        $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
-        New-Item -ItemType Directory -Path "dist/$DIST_NAME" -Force
-        
-        # Copy binaries
-        Copy-Item "build/bin/Release/shadps4-manager-gui.exe" "dist/$DIST_NAME/"
-        Copy-Item "build/bin/Release/shadps4-pkg-extractor.exe" "dist/$DIST_NAME/"
-        
-        # Use windeployqt
-        & "$env:Qt6_DIR/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
-        
-        # Copy documentation
-        if (Test-Path "README.md") { Copy-Item "README.md" "dist/$DIST_NAME/" }
-        if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$DIST_NAME/" }
-        
-        # Create archive
-        cd dist
-        Compress-Archive -Path "$DIST_NAME" -DestinationPath "$DIST_NAME.zip"
-        cd ..
-      shell: powershell
-      
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: windows-release
-        path: dist/*.zip
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew update
+          brew install cmake
+        shell: bash
+
+      - name: Install dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install
+        shell: bash
+
+      - name: Build
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cmake --build build --config Release -- /m
+          else
+            cmake --build build --config Release -- -j$(nproc || sysctl -n hw.ncpu)
+          fi
+        shell: bash
+
+      - name: Install
+        run: |
+          cmake --install build --prefix install --config Release
+        shell: bash
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $filename = "$tag-windows-x86_64.zip"
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path install\* -DestinationPath "dist\$filename"
+
+      - name: Package (linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          tag=${GITHUB_REF#refs/tags/}
+          filename="${tag}-${{ matrix.os }}-x86_64.tar.gz"
+          mkdir -p dist
+          tar -czf dist/${filename} -C install .
+        shell: bash
+
+      - name: Upload job artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          path: dist/*
 
   create-release:
-    if: github.event.inputs.create_release == 'true'
-    needs: [bump-version, build-linux, build-windows]
+    name: Create GitHub Release and attach assets
     runs-on: ubuntu-latest
-    
+    needs: build
     steps:
-    - name: Download Linux artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: linux-release
-        path: release-assets
-        
-    - name: Download Windows artifacts
-      uses: actions/download-artifact@v4
-      with:
-        name: windows-release
-        path: release-assets
-        
-    - name: Create Release
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: v${{ needs.bump-version.outputs.new_version }}
-        name: Release v${{ needs.bump-version.outputs.new_version }}
-        files: release-assets/*
-        draft: false
-        prerelease: false
-        generate_release_notes: true
-        body: |
-          ## ShadPs4Manager v${{ needs.bump-version.outputs.new_version }}
-          
-          ### Downloads
-          - **Linux x64**: ShadPs4Manager-${{ needs.bump-version.outputs.new_version }}-linux-x64.tar.gz
-          - **Windows x64**: ShadPs4Manager-${{ needs.bump-version.outputs.new_version }}-windows-x64.zip
-          
-          ### Installation
-          #### Linux
-          ```bash
-          tar -xzf ShadPs4Manager-${{ needs.bump-version.outputs.new_version }}-linux-x64.tar.gz
-          cd ShadPs4Manager-${{ needs.bump-version.outputs.new_version }}-linux-x64
-          chmod +x install.sh
-          ./install.sh
-          ```
-          
-          #### Windows
-          1. Extract the ZIP file
-          2. Run `install.bat` as Administrator (optional)
-          3. Or run `shadps4-manager-gui.exe` directly
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
