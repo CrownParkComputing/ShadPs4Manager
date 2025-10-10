@@ -4,10 +4,14 @@ A modern GUI application for managing PS4 games, built with Qt6 and CMake.
 
 ## Features
 
-- **Game Library Management**: Browse and organize your PS4 game collection
-- **Game Cards View**: Modern card-based interface with game artwork
+- **Game Library Management**: Browse and organize your PS4 game collection with support for base games, updates, and DLC
+- **Game Cards View**: Modern card-based interface with game artwork and metadata from IGDB
+- **Folder Structure Support**: Organized folder naming for base games, updates (GameName-UPDATE), and DLC (DLC/GameName-DLC)
+- **Launch Emulator**: Direct launcher for ShadPS4 emulator with or without games
+- **System ShadPS4 Support**: Option to use system-installed ShadPS4 instead of specifying a custom path
 - **Param.sfo Editor**: Edit PS4 game metadata directly
-- **PKG File Support**: Handle PS4 package files
+- **PKG File Support**: Extract and handle PS4 package files
+- **IGDB Integration**: Automatic game metadata and artwork fetching
 - **Dark Theme**: Modern dark UI for comfortable use
 
 ## Prerequisites
@@ -103,17 +107,37 @@ make -j$(nproc)
 
 2. **Configure Settings**:
    - Set your game library path
-   - Configure ShadPS4 executable location
-   - Adjust other preferences as needed
+   - Configure ShadPS4 executable location:
+     - **Option 1**: Browse to a specific ShadPS4 executable
+     - **Option 2**: Check "Use System-Installed ShadPS4" to use the version in your PATH
+   - Set up DLC folder path
+   - Configure IGDB API credentials (optional, for game metadata)
 
-3. **Game Library**:
+3. **Game Library Organization**:
+   Organize your games following this structure:
+   ```
+   GameLibrary/
+   ├── GameName/              # Base game
+   ├── GameName-UPDATE/       # Game updates
+   └── DLC/
+       ├── GameName-DLC/      # DLC for GameName
+       └── GameName-DLC-2/    # Additional DLC
+   ```
+   See [FOLDER_STRUCTURE.md](FOLDER_STRUCTURE.md) for detailed information.
+
+4. **Launch Options**:
+   - **Launch Game**: Click on a game card to launch it with ShadPS4
+   - **Launch Emulator Only**: Click "Launch Emulator" button to start ShadPS4 without a specific game
+
+5. **Game Library Features**:
    - Browse your PS4 games in a modern card-based interface
-   - View game information and metadata
-   - Launch games directly
+   - View game information and metadata from IGDB
+   - Launch games directly with detected updates and DLC
+   - Edit param.sfo files for each game
 
-4. **Param.sfo Editor**:
-   - Edit game metadata stored in param.sfo files
-   - Update title, version, and other game information
+6. **Downloads Management**:
+   - Extract PKG files to your game library
+   - Automatic detection of base games, updates, and DLC packages
 
 ## Project Structure
 

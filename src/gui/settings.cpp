@@ -15,6 +15,8 @@ Settings::Settings() : m_settings("ShadPs4Manager", "Settings") {
 void Settings::loadSettings() {
     m_gameLibraryPath = m_settings.value("paths/gameLibrary", getDefaultGameLibraryPath()).toString();
     m_downloadsPath = m_settings.value("paths/downloads", getDefaultDownloadsPath()).toString();
+    m_dlcFolderPath = m_settings.value("paths/dlcFolder", getDefaultDlcFolderPath()).toString();
+    m_useSystemShadPS4 = m_settings.value("shadps4/useSystem", false).toBool();
     // IGDB credentials now loaded from CredentialManager (encrypted storage)
 }
 
@@ -22,6 +24,8 @@ void Settings::saveSettings() {
     m_settings.setValue("paths/gameLibrary", m_gameLibraryPath);
     m_settings.setValue("paths/downloads", m_downloadsPath);
     m_settings.setValue("paths/shadps4", getShadPS4Path());
+    m_settings.setValue("paths/dlcFolder", m_dlcFolderPath);
+    m_settings.setValue("shadps4/useSystem", m_useSystemShadPS4);
     // IGDB credentials now saved through CredentialManager (encrypted storage)
     m_settings.sync();
 }
@@ -45,6 +49,17 @@ void Settings::setDownloadsPath(const QString& path) {
 }
 
 QString Settings::getShadPS4Path() const {
+    // If using system shadPS4, try to find it in PATH
+    if (m_useSystemShadPS4) {
+        QString systemPath = QStandardPaths::findExecutable("shadps4");
+        if (!systemPath.isEmpty()) {
+            return systemPath;
+        }
+        // If not found in PATH, still try default locations
+        return getDefaultShadPS4Path();
+    }
+    
+    // Otherwise, use the configured path
     QString path = m_settings.value("paths/shadps4", getDefaultShadPS4Path()).toString();
     return path;
 }
@@ -52,6 +67,24 @@ QString Settings::getShadPS4Path() const {
 void Settings::setShadPS4Path(const QString& path) {
     m_settings.setValue("paths/shadps4", path);
     m_settings.sync();
+}
+
+bool Settings::getUseSystemShadPS4() const {
+    return m_useSystemShadPS4;
+}
+
+void Settings::setUseSystemShadPS4(bool useSystem) {
+    m_useSystemShadPS4 = useSystem;
+    saveSettings();
+}
+
+QString Settings::getDlcFolderPath() const {
+    return m_dlcFolderPath;
+}
+
+void Settings::setDlcFolderPath(const QString& path) {
+    m_dlcFolderPath = path;
+    saveSettings();
 }
 
 QString Settings::getDefaultGameLibraryPath() const {
@@ -82,6 +115,10 @@ QString Settings::getDefaultShadPS4Path() const {
     return QString(); // Return empty if not found
 }
 
+QString Settings::getDefaultDlcFolderPath() const {
+    return getDefaultPath("DLC");
+}
+
 QString Settings::getDefaultPath(const QString& subfolder) const {
     QString documentsPath = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
     return QDir(documentsPath).filePath("ShadPs4Manager/" + subfolder);
@@ -97,6 +134,11 @@ bool Settings::isDownloadsPathValid() const {
     return info.exists() && info.isDir() && info.isWritable();
 }
 
+bool Settings::isDlcFolderPathValid() const {
+    QFileInfo info(m_dlcFolderPath);
+    return info.exists() && info.isDir() && info.isWritable();
+}
+
 bool Settings::createGameLibraryDirectory() {
     QDir dir;
     if (!dir.mkpath(m_gameLibraryPath)) {
@@ -109,6 +151,15 @@ bool Settings::createGameLibraryDirectory() {
 bool Settings::createDownloadsDirectory() {
     QDir dir;
     if (!dir.mkpath(m_downloadsPath)) {
+        return false;
+    }
+    saveSettings();
+    return true;
+}
+
+bool Settings::createDlcFolderDirectory() {
+    QDir dir;
+    if (!dir.mkpath(m_dlcFolderPath)) {
         return false;
     }
     saveSettings();

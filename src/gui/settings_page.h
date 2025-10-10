@@ -12,6 +12,7 @@
 #include <QDir>
 #include <QApplication>
 #include <QLineEdit>
+#include <QCheckBox>
 
 class IgdbService;
 
@@ -31,8 +32,10 @@ private slots:
     void selectGameLibraryPath();
     void selectDownloadsPath();
     void selectShadPS4Path();
+    void selectDlcFolderPath();
     void createGameLibraryDirectory();
     void createDownloadsDirectory();
+    void createDlcFolderDirectory();
     void resetToDefaults();
     void saveIgdbCredentials();
     void setDefaultIgdbCredentials();
@@ -47,9 +50,13 @@ private:
     QLabel* gameLibraryPathLabel;
     QLabel* downloadsPathLabel;
     QLabel* shadps4PathLabel;
+    QLabel* dlcFolderPathLabel;
     QLabel* gameLibraryStatusLabel;
     QLabel* downloadsStatusLabel;
     QLabel* shadps4StatusLabel;
+    QLabel* dlcFolderStatusLabel;
+
+    QCheckBox* useSystemShadPS4Checkbox;
 
     QLineEdit* igdbClientIdEdit;
     QLineEdit* igdbClientSecretEdit;
@@ -57,6 +64,7 @@ private:
     QString gameLibraryPath;
     QString downloadsPath;
     QString shadps4Path;
+    QString dlcFolderPath;
     
     IgdbService* m_igdbService;
 };

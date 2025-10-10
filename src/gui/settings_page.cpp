@@ -1,5 +1,6 @@
 #include "settings_page.h"
 #include "settings.h"
+#include "credential_manager.h"
 #include "igdbservice.h"
 
 SettingsPage::SettingsPage(QWidget* parent) : QWidget(parent) {
@@ -62,6 +63,10 @@ void SettingsPage::setupUI() {
     auto* shadps4Group = new QGroupBox("ShadPS4 Emulator Path");
     auto* shadps4Layout = new QVBoxLayout(shadps4Group);
 
+    // Checkbox for using system shadPS4
+    useSystemShadPS4Checkbox = new QCheckBox("Use System-Installed ShadPS4 (from PATH)");
+    shadps4Layout->addWidget(useSystemShadPS4Checkbox);
+
     auto* shadps4Row = new QHBoxLayout();
     auto* selectShadPS4Button = new QPushButton("Browse...");
     shadps4PathLabel = new QLabel();
@@ -74,6 +79,25 @@ void SettingsPage::setupUI() {
     shadps4Layout->addWidget(shadps4StatusLabel);
 
     mainLayout->addWidget(shadps4Group);
+
+    // DLC Folder Section
+    auto* dlcFolderGroup = new QGroupBox("DLC Folder Path");
+    auto* dlcFolderLayout = new QVBoxLayout(dlcFolderGroup);
+
+    auto* dlcFolderRow = new QHBoxLayout();
+    auto* selectDlcFolderButton = new QPushButton("Browse...");
+    auto* createDlcFolderButton = new QPushButton("Create Directory");
+    dlcFolderPathLabel = new QLabel();
+
+    dlcFolderRow->addWidget(selectDlcFolderButton);
+    dlcFolderRow->addWidget(createDlcFolderButton);
+    dlcFolderRow->addWidget(dlcFolderPathLabel, 1);
+
+    dlcFolderLayout->addLayout(dlcFolderRow);
+    dlcFolderStatusLabel = new QLabel();
+    dlcFolderLayout->addWidget(dlcFolderStatusLabel);
+
+    mainLayout->addWidget(dlcFolderGroup);
 
     // IGDB API Section
     auto* igdbGroup = new QGroupBox("IGDB API Configuration");
@@ -108,12 +132,15 @@ void SettingsPage::setupUI() {
     // IGDB buttons
     auto* igdbButtonLayout = new QHBoxLayout();
     auto* setDefaultCredsButton = new QPushButton("Use Default Credentials");
+    auto* clearCredsButton = new QPushButton("Clear Stored Credentials");
     auto* testIgdbButton = new QPushButton("Test Connection");
     
     setDefaultCredsButton->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 11px; } QPushButton:hover { background-color: #45a049; }");
+    clearCredsButton->setStyleSheet("QPushButton { background-color: #FF9800; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 11px; } QPushButton:hover { background-color: #e68900; }");
     testIgdbButton->setStyleSheet("QPushButton { background-color: #2196F3; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-size: 11px; } QPushButton:hover { background-color: #0b7dda; }");
     
     igdbButtonLayout->addWidget(setDefaultCredsButton);
+    igdbButtonLayout->addWidget(clearCredsButton);
     igdbButtonLayout->addWidget(testIgdbButton);
     igdbButtonLayout->addStretch();
     igdbLayout->addLayout(igdbButtonLayout);
@@ -138,6 +165,12 @@ void SettingsPage::setupUI() {
     connect(selectDownloadsButton, &QPushButton::clicked, this, &SettingsPage::selectDownloadsPath);
     connect(createDownloadsButton, &QPushButton::clicked, this, &SettingsPage::createDownloadsDirectory);
     connect(selectShadPS4Button, &QPushButton::clicked, this, &SettingsPage::selectShadPS4Path);
+    connect(useSystemShadPS4Checkbox, &QCheckBox::toggled, this, [this](bool checked) {
+        Settings::instance().setUseSystemShadPS4(checked);
+        refreshSettings();
+    });
+    connect(selectDlcFolderButton, &QPushButton::clicked, this, &SettingsPage::selectDlcFolderPath);
+    connect(createDlcFolderButton, &QPushButton::clicked, this, &SettingsPage::createDlcFolderDirectory);
     connect(resetButton, &QPushButton::clicked, this, &SettingsPage::resetToDefaults);
     connect(refreshButton, &QPushButton::clicked, this, &SettingsPage::refreshSettings);
 
@@ -145,6 +178,12 @@ void SettingsPage::setupUI() {
     connect(igdbClientIdEdit, &QLineEdit::textChanged, this, &SettingsPage::saveIgdbCredentials);
     connect(igdbClientSecretEdit, &QLineEdit::textChanged, this, &SettingsPage::saveIgdbCredentials);
     connect(setDefaultCredsButton, &QPushButton::clicked, this, &SettingsPage::setDefaultIgdbCredentials);
+    connect(clearCredsButton, &QPushButton::clicked, this, [this]() {
+        CredentialManager::instance().clearAllCredentials();
+        refreshSettings();
+        QMessageBox::information(this, "Credentials Cleared", 
+            "Stored IGDB credentials have been cleared.\nDefault credentials will be used.");
+    });
     connect(testIgdbButton, &QPushButton::clicked, this, &SettingsPage::testIgdbConnection);
 }
 
@@ -222,6 +261,10 @@ void SettingsPage::refreshSettings() {
     gameLibraryPath = settings.getGameLibraryPath();
     downloadsPath = settings.getDownloadsPath();
     shadps4Path = settings.getShadPS4Path();
+    dlcFolderPath = settings.getDlcFolderPath();
+
+    // Load use system shadPS4 checkbox
+    useSystemShadPS4Checkbox->setChecked(settings.getUseSystemShadPS4());
 
     // Load IGDB credentials
     igdbClientIdEdit->setText(settings.getIgdbClientId());
@@ -263,6 +306,16 @@ void SettingsPage::updatePathDisplay() {
     } else {
         shadps4StatusLabel->setText("✗ Executable not found or not executable");
         shadps4StatusLabel->setObjectName("statusInvalid");
+    }
+
+    // Update DLC folder path display
+    dlcFolderPathLabel->setText(dlcFolderPath);
+    if (settings.isDlcFolderPathValid()) {
+        dlcFolderStatusLabel->setText("✓ Directory exists and is writable");
+        dlcFolderStatusLabel->setObjectName("statusValid");
+    } else {
+        dlcFolderStatusLabel->setText("✗ Directory does not exist or is not writable");
+        dlcFolderStatusLabel->setObjectName("statusInvalid");
     }
 
     // Reapply styles to update colors
@@ -309,6 +362,19 @@ void SettingsPage::selectShadPS4Path() {
     }
 }
 
+void SettingsPage::selectDlcFolderPath() {
+    QString dir = QFileDialog::getExistingDirectory(
+        this,
+        "Select DLC Folder Directory",
+        Settings::instance().getDlcFolderPath()
+    );
+
+    if (!dir.isEmpty()) {
+        Settings::instance().setDlcFolderPath(dir);
+        refreshSettings();
+    }
+}
+
 void SettingsPage::createGameLibraryDirectory() {
     if (Settings::instance().createGameLibraryDirectory()) {
         QMessageBox::information(this, "Success",
@@ -331,11 +397,23 @@ void SettingsPage::createDownloadsDirectory() {
     }
 }
 
+void SettingsPage::createDlcFolderDirectory() {
+    if (Settings::instance().createDlcFolderDirectory()) {
+        QMessageBox::information(this, "Success",
+            "DLC Folder directory created successfully!");
+        refreshSettings();
+    } else {
+        QMessageBox::critical(this, "Error",
+            "Failed to create DLC Folder directory!");
+    }
+}
+
 void SettingsPage::resetToDefaults() {
     Settings& settings = Settings::instance();
 
     settings.setGameLibraryPath(settings.getDefaultGameLibraryPath());
     settings.setDownloadsPath(settings.getDefaultDownloadsPath());
+    settings.setDlcFolderPath(settings.getDefaultDlcFolderPath());
     settings.setShadPS4Path(settings.getDefaultShadPS4Path());
 
     refreshSettings();

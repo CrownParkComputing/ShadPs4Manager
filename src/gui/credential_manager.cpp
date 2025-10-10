@@ -25,12 +25,16 @@ QString CredentialManager::getIgdbClientId() const {
     // Check if user has set custom credentials
     QString encrypted = m_settings.value(IGDB_CLIENT_ID_KEY, "").toString();
     if (!encrypted.isEmpty()) {
-        return decryptString(encrypted);
+        QString decrypted = decryptString(encrypted);
+        qDebug() << "[CredentialManager] Using custom IGDB Client ID:" << decrypted;
+        return decrypted;
     }
     
     // Return hardcoded default credentials (decrypt with static key)
     // Client ID: ocrjdozwkkal2p4wx9e8qh6lj6kn90
-    return decryptDefault(getDefaultClientId());
+    QString defaultId = decryptDefault(getDefaultClientId());
+    qDebug() << "[CredentialManager] Using default IGDB Client ID:" << defaultId;
+    return defaultId;
 }
 
 void CredentialManager::setIgdbClientId(const QString& clientId) {

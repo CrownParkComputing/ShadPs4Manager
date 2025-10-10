@@ -1,616 +1,565 @@
+// ShadPs4 Manager - GUI Application
+// 
+// ARCHITECTURE:
+// This GUI application acts as a frontend for PS4 PKG management and extraction.
+// It uses a separate CLI tool (shadps4-pkg-extractor) for all PKG extraction operations.
+// 
+// DEPENDENCIES:
+// - shadps4-pkg-extractor: CLI binary that performs actual PKG extraction
+//   Must be present in the same bin/ folder as this GUI executable
+// 
+// EXTRACTION FLOW:
+// 1. GUI queues extraction requests from user actions
+// 2. GUI spawns shadps4-pkg-extractor process via QProcess
+// 3. CLI tool performs extraction and outputs progress to stdout/stderr
+// 4. GUI captures output streams and displays in real-time log
+// 5. On completion, GUI processes next item in queue
+// 
+// This separation provides:
+// - Process isolation (CLI crashes don't crash GUI)
+// - Easier debugging (can test CLI independently)
+// - Simpler threading model (each extraction is independent process)
+// - Better error recovery (failed extractions don't corrupt GUI state)
+
 #include <QApplication>
-#include <QWidget>
+#include <QMainWindow>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QTabWidget>
-#include <QLabel>
 #include <QPushButton>
+#include <QLabel>
+#include <QFileDialog>
 #include <QMessageBox>
-#include <QDir>
-#include <QTimer>
-#include <QProgressDialog>
+#include <QDesktopServices>
+#include <QUrl>
+#include <QRegularExpression>
 #include <QPointer>
-#include <QThread>
+#include <QTimer>
+#include <QSettings>
 #include <QStandardPaths>
+#include <QDir>
 #include <QFileInfo>
+#include <QDirIterator>
+#include <QDateTime>
+#include <QProcess>
+#include <QDialog>
+#include <QTextEdit>
 #include <QDebug>
-#include <filesystem>
-#include <algorithm>
+#include <QQueue>
+#include <QSplashScreen>
+#include <QPixmap>
+#include <QPainter>
+#include <QThread>
+#include <chrono>
 
-// Include new components
 #include "settings.h"
 #include "settings_page.h"
 #include "game_library.h"
 #include "downloads_folder.h"
-#include "pkg_tool/lib.h"
-#include "core/file_format/pkg.h"
-#include "core/update_merger.h"
 
-class MainWindow : public QWidget {
+class MainWindow : public QMainWindow {
     Q_OBJECT
 
+private:
+    struct ExtractionRequest {
+        QString pkgPath;
+        QString outputPath;
+        PkgType pkgType;
+    };
+    void setupUI();
+    void connectSignals();
+    void onSettingsChanged();
+    
+    QQueue<ExtractionRequest> extractionQueue;
+    bool isExtracting = false;
+    QProcess* currentExtractionProcess = nullptr;
+    QTextEdit* extractionLogWidget = nullptr;  // Log output area
+    QTabWidget* mainTabWidget = nullptr;  // Reference to switch tabs
+
 public:
-    MainWindow(QWidget* parent = nullptr) : QWidget(parent) {
+    MainWindow(QWidget* parent = nullptr) : QMainWindow(parent) {
         setupUI();
-        applyStyles();
         connectSignals();
         
-        // Initialize settings
-        Settings& settings = Settings::instance();
-        
-        // Set window properties
-        setWindowTitle("ShadPs4 Manager - Game Library");
-        setMinimumSize(1000, 700);
-        resize(1200, 800);
+        // Load settings on startup
+        onSettingsChanged();
     }
 
-private slots:
+    ~MainWindow() {
+        // Clean up
+    }
+
+public slots:
     void refreshAllData() {
         gameLibrary->refreshLibrary();
-        // Downloads folder will be refreshed when dialog is opened
-        // This prevents unnecessary refreshes when dialog is not visible
     }
 
-    void openSettings() {
-        // Create settings dialog
-        QDialog* settingsDialog = new QDialog(this);
-        settingsDialog->setWindowTitle("Settings");
-        settingsDialog->setModal(true);
-        settingsDialog->resize(600, 500);
+    void launchEmulator() {
+        QString shadps4Path = Settings::instance().getShadPS4Path();
         
-        auto* dialogLayout = new QVBoxLayout(settingsDialog);
-        
-        // Create new settings page for the dialog
-        auto* settingsPageDialog = new SettingsPage();
-        dialogLayout->addWidget(settingsPageDialog);
-        
-        // Add close button
-        auto* buttonLayout = new QHBoxLayout();
-        buttonLayout->addStretch();
-        auto* closeButton = new QPushButton("Close");
-        closeButton->setObjectName("closeButton");
-        connect(closeButton, &QPushButton::clicked, settingsDialog, &QDialog::accept);
-        buttonLayout->addWidget(closeButton);
-        dialogLayout->addLayout(buttonLayout);
-        
-        // Connect settings changes
-        connect(settingsPageDialog, &SettingsPage::settingsChanged, this, &MainWindow::onSettingsChanged);
-        
-        settingsDialog->exec();
-        settingsDialog->deleteLater();
-    }
-
-    void openDownloads() {
-        // Create downloads dialog  
-        QDialog* downloadsDialog = new QDialog(this);
-        downloadsDialog->setWindowTitle("Downloads");
-        downloadsDialog->setModal(true);
-        downloadsDialog->resize(800, 600);
-        
-        auto* dialogLayout = new QVBoxLayout(downloadsDialog);
-        
-        // Create new downloads page for the dialog
-        auto* downloadsPageDialog = new DownloadsFolder();
-        dialogLayout->addWidget(downloadsPageDialog);
-        
-        // Connect extraction signal from this dialog instance
-        connect(downloadsPageDialog, &DownloadsFolder::extractionRequested, this, [this](const QString& pkgPath, const QString& outputPath) {
-            extractPkgFile(pkgPath, outputPath);
-        });
-        
-        // Add close button
-        auto* buttonLayout = new QHBoxLayout();
-        buttonLayout->addStretch();
-        auto* closeButton = new QPushButton("Close");
-        closeButton->setObjectName("closeButton");
-        connect(closeButton, &QPushButton::clicked, downloadsDialog, &QDialog::accept);
-        buttonLayout->addWidget(closeButton);
-        dialogLayout->addLayout(buttonLayout);
-        
-        downloadsDialog->exec();
-        downloadsDialog->deleteLater();
-    }
-
-    void onSettingsChanged() {
-        // Refresh library when settings change (like library path)
-        gameLibrary->refreshLibrary();
-    }
-
-private:
-    void setupUI() {
-        auto* mainLayout = new QVBoxLayout(this);
-
-        // Header with menu buttons
-        auto* headerLayout = new QHBoxLayout();
-        auto* titleLabel = new QLabel("ShadPs4 Manager");
-        titleLabel->setObjectName("mainTitle");
-        
-        // Menu buttons
-        auto* menuLayout = new QHBoxLayout();
-        
-        auto* downloadsButton = new QPushButton("Downloads");
-        downloadsButton->setObjectName("menuButton");
-        downloadsButton->setToolTip("Open Downloads folder manager");
-        
-        auto* settingsButton = new QPushButton("Settings");
-        settingsButton->setObjectName("menuButton");
-        settingsButton->setToolTip("Open Settings");
-        
-        auto* refreshButton = new QPushButton("Refresh");
-        refreshButton->setObjectName("refreshButton");
-        refreshButton->setToolTip("Refresh game library");
-        
-        menuLayout->addWidget(downloadsButton);
-        menuLayout->addWidget(settingsButton);
-        menuLayout->addWidget(refreshButton);
-        
-        headerLayout->addWidget(titleLabel);
-        headerLayout->addStretch();
-        headerLayout->addLayout(menuLayout);
-        
-        mainLayout->addLayout(headerLayout);
-
-        // Main content - Game Library (no tabs)
-        gameLibrary = new GameLibrary();
-        mainLayout->addWidget(gameLibrary);
-        
-        // Connect buttons
-        connect(refreshButton, &QPushButton::clicked, this, &MainWindow::refreshAllData);
-        connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
-        connect(downloadsButton, &QPushButton::clicked, this, &MainWindow::openDownloads);
-    }
-
-    void applyStyles() {
-        setStyleSheet(R"(
-            QWidget {
-                background-color: #2b2b2b;
-                color: #ffffff;
-                font-family: 'Segoe UI', Arial, sans-serif;
-            }
-
-            #mainTitle {
-                font-size: 24px;
-                font-weight: bold;
-                color: #4CAF50;
-                padding: 10px;
-            }
-
-            #refreshButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-
-            #refreshButton:hover {
-                background-color: #45a049;
-            }
-
-            #refreshButton:pressed {
-                background-color: #3d8b40;
-            }
-
-            #menuButton {
-                background-color: #2196F3;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: bold;
-                margin-left: 5px;
-            }
-
-            #menuButton:hover {
-                background-color: #0b7dda;
-            }
-
-            #menuButton:pressed {
-                background-color: #0969da;
-            }
-
-            #closeButton {
-                background-color: #4CAF50;
-                color: white;
-                border: none;
-                padding: 8px 16px;
-                border-radius: 4px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-
-            #closeButton:hover {
-                background-color: #45a049;
-            }
-        )");
-    }
-
-    void connectSignals() {
-        // Settings changes will be connected per-dialog in openSettings()
-    }
-
-    // Helper function to check available disk space
-    bool checkDiskSpace(const QString& outputPath, uint64_t requiredSize, QString& errorMessage) {
-        try {
-            std::filesystem::path path(outputPath.toStdString());
-            
-            // Get parent directory if the path doesn't exist yet
-            while (!std::filesystem::exists(path) && path.has_parent_path()) {
-                path = path.parent_path();
-            }
-            
-            if (!std::filesystem::exists(path)) {
-                errorMessage = "Target directory path is invalid or inaccessible.";
-                return false;
-            }
-            
-            std::filesystem::space_info spaceInfo = std::filesystem::space(path);
-            uint64_t availableSpace = spaceInfo.available;
-            
-            // Add 20% buffer for extraction overhead and temporary files
-            uint64_t requiredWithBuffer = requiredSize + (requiredSize / 5);
-            
-            if (availableSpace < requiredWithBuffer) {
-                errorMessage = QString("Insufficient disk space!\n\n"
-                    "Required: %1 (+ 20% buffer)\n"
-                    "Available: %2\n"
-                    "Shortage: %3")
-                    .arg(formatBytes(requiredWithBuffer))
-                    .arg(formatBytes(availableSpace))
-                    .arg(formatBytes(requiredWithBuffer - availableSpace));
-                return false;
-            }
-            
-            // Warn if less than 1GB free space will remain
-            uint64_t remainingAfter = availableSpace - requiredWithBuffer;
-            if (remainingAfter < (1024ULL * 1024 * 1024)) {
-                errorMessage = QString("Warning: Low disk space after extraction!\n\n"
-                    "Required: %1\n"
-                    "Available: %2\n"
-                    "Remaining after extraction: %3\n\n"
-                    "Continue anyway?")
-                    .arg(formatBytes(requiredWithBuffer))
-                    .arg(formatBytes(availableSpace))
-                    .arg(formatBytes(remainingAfter));
-                return false; // Will be handled as warning, not error
-            }
-            
-            return true;
-            
-        } catch (const std::exception& e) {
-            errorMessage = QString("Error checking disk space: %1").arg(QString::fromStdString(e.what()));
-            return false;
-        }
-    }
-    
-    // Helper function to format bytes for display
-    QString formatBytes(uint64_t bytes) {
-        const char* units[] = {"B", "KB", "MB", "GB", "TB"};
-        int unitIndex = 0;
-        double size = static_cast<double>(bytes);
-        
-        while (size >= 1024.0 && unitIndex < 4) {
-            size /= 1024.0;
-            unitIndex++;
+        if (shadps4Path.isEmpty()) {
+            QMessageBox::warning(this, "No Emulator Path", 
+                "Please set the ShadPS4 emulator path in Settings before launching.");
+            return;
         }
         
-        return QString("%1 %2").arg(size, 0, 'f', (unitIndex > 0) ? 2 : 0).arg(units[unitIndex]);
+        // Launch ShadPS4 without any game
+        QProcess::startDetached(shadps4Path);
+    }
+
+    void killShadPS4() {
+        // Kill all ShadPS4 processes (force terminate)
+        QProcess killProcess;
+        killProcess.start("pkill", QStringList() << "-9" << "-f" << "shadps4");
+        killProcess.waitForFinished(3000); // Wait up to 3 seconds
+        
+        if (killProcess.exitCode() == 0 || killProcess.exitCode() == 1) {
+            // Exit code 0 means processes were killed
+            // Exit code 1 means no matching processes found (also ok)
+            QMessageBox::information(this, "Kill ShadPS4", 
+                "All ShadPS4 processes have been terminated.");
+        } else {
+            QMessageBox::warning(this, "Kill Failed", 
+                QString("Failed to kill ShadPS4 processes.\nYou may need to terminate them manually.\nExit code: %1").arg(killProcess.exitCode()));
+        }
     }
 
     void extractPkgFile(const QString& pkgPath, const QString& outputPath) {
-        try {
-            // Validate PKG file exists and has content
-            QFileInfo pkgFileInfo(pkgPath);
-            if (!pkgFileInfo.exists()) {
-                QMessageBox::critical(this, "Extraction Error", 
-                    QString("PKG file not found: %1").arg(pkgPath));
-                return;
+        // Determine PKG type from filename
+        QFileInfo fileInfo(pkgPath);
+        QString baseName = fileInfo.completeBaseName();
+        PkgType pkgType = detectPkgType(baseName);
+        
+        // Add to extraction queue
+        // Deduplicate: skip if same path already queued or currently extracting
+        bool duplicate = false;
+        if (isExtracting && currentExtractionProcess) {
+            // currentExtractionProcess arguments handled separately
+        }
+        for (const auto &req : extractionQueue) {
+            if (req.pkgPath == pkgPath) { duplicate = true; break; }
+        }
+        if (duplicate) {
+            qDebug() << "Duplicate PKG already in queue, skipping:" << pkgPath;
+            return;
+        }
+        ExtractionRequest request{pkgPath, outputPath, pkgType};
+        extractionQueue.enqueue(request);
+        
+        qDebug() << "Added to queue:" << pkgPath << "Type:" << static_cast<int>(pkgType);
+        
+        // Switch to extraction log tab when starting extraction
+        if (mainTabWidget && extractionLogWidget) {
+            int logTabIndex = mainTabWidget->indexOf(extractionLogWidget);
+            if (logTabIndex >= 0) {
+                mainTabWidget->setCurrentIndex(logTabIndex);
+            }
+        }
+        
+        // Process queue if not already extracting
+        processExtractionQueue();
+    }
+
+    void openSettings(); // declaration for settings dialog slot
+
+private slots:
+    void processExtractionQueue() {
+        // If already extracting or queue is empty, return
+        if (isExtracting || extractionQueue.isEmpty()) {
+            return;
+        }
+        
+        // Mark as extracting and process next item
+        isExtracting = true;
+        ExtractionRequest request = extractionQueue.dequeue();
+        
+        qDebug() << "=== PKG EXTRACTION STARTED (CLI-BASED) ===";
+        qDebug() << "PKG Path:" << request.pkgPath;
+        qDebug() << "Output Path:" << request.outputPath;
+        qDebug() << "PKG Type:" << static_cast<int>(request.pkgType);
+        qDebug() << "Remaining in queue:" << extractionQueue.size();
+        
+        // Log to the extraction log widget
+        if (extractionLogWidget) {
+            QString pkgTypeName;
+            switch (request.pkgType) {
+                case PkgType::BaseGame: pkgTypeName = "Base Game"; break;
+                case PkgType::Update: pkgTypeName = "Update"; break;
+                case PkgType::DLC: pkgTypeName = "DLC"; break;
+                default: pkgTypeName = "Package"; break;
             }
             
-            if (pkgFileInfo.size() == 0) {
-                QMessageBox::critical(this, "Extraction Error", 
-                    QString("PKG file is empty: %1").arg(pkgPath));
-                return;
-            }
+            extractionLogWidget->append(QString("\n=== EXTRACTION STARTED ==="));
+            extractionLogWidget->append(QString("Type: %1").arg(pkgTypeName));
+            extractionLogWidget->append(QString("File: %1").arg(QFileInfo(request.pkgPath).fileName()));
+            extractionLogWidget->append(QString("Output: %1").arg(request.outputPath));
+            extractionLogWidget->append(QString("Queue: %1 remaining\n").arg(extractionQueue.size()));
             
-            if (pkgFileInfo.size() < 1024) { // PKG files should be at least 1KB
-                QMessageBox::critical(this, "Extraction Error", 
-                    QString("PKG file is too small to be valid: %1\nSize: %2 bytes").arg(pkgPath).arg(pkgFileInfo.size()));
-                return;
+            // Auto-scroll to bottom
+            QTextCursor cursor = extractionLogWidget->textCursor();
+            cursor.movePosition(QTextCursor::End);
+            extractionLogWidget->setTextCursor(cursor);
+        }
+        
+        // Get the path to our CLI pkg extractor executable (must be in same bin/ folder)
+        QString extractorPath = QCoreApplication::applicationDirPath() + "/shadps4-pkg-extractor";
+        
+        if (!QFile::exists(extractorPath)) {
+            qDebug() << "CRITICAL ERROR: CLI pkg extractor not found at:" << extractorPath;
+            if (extractionLogWidget) {
+                extractionLogWidget->append(QString("<span style='color:red;'>CRITICAL ERROR: CLI extractor missing!</span>"));
+                extractionLogWidget->append(QString("<span style='color:red;'>Expected location: %1</span>").arg(extractorPath));
+                extractionLogWidget->append(QString("<span style='color:red;'>The GUI requires the shadps4-pkg-extractor CLI tool to extract PKG files.</span>"));
+                extractionLogWidget->append(QString("<span style='color:red;'>Please ensure both binaries are built and placed in the same directory.</span>"));
             }
-
-            // Determine if this is an update package by analyzing the filename
-            bool isUpdate = detectIfUpdate(pkgPath);
-
-            // Convert Qt strings to filesystem paths
-            std::filesystem::path pkgPathFs = std::filesystem::path(pkgPath.toStdString());
-            std::filesystem::path outputPathFs = std::filesystem::path(outputPath.toStdString());
-            
-            // Read metadata via PKG class
-            PKG pkg;
-            std::string failReason;
-            if (!pkg.Open(pkgPathFs, failReason)) {
-                QMessageBox::critical(this, "Extraction Error",
-                    QString("Failed to open PKG: %1\n\nFile: %2").arg(QString::fromStdString(failReason)).arg(pkgPath));
-                return;
-            }
-            const PKGMeta metadata = pkg.GetMetadata();
-
-            // Validate metadata makes sense - only check PKG size, not file count
-            // Note: Some PKG files report file_count as 0 but still contain extractable PFS files
-            if (metadata.pkg_size == 0) {
-                QMessageBox::critical(this, "Extraction Error", 
-                    QString("PKG file appears to be invalid or corrupted.\n\nFile: %1\nPKG Size: %2\nFile Count: %3")
-                    .arg(pkgPath)
-                    .arg(metadata.pkg_size)
-                    .arg(metadata.file_count));
-                return;
-            }
-
-            // Clean up any incomplete/partial extraction first
-            QDir outputDir(outputPath);
-            if (outputDir.exists()) {
-                // Check if it's a complete extraction (has param.sfo)
-                bool hasParamSfo = false;
-                QDirIterator it(outputPath, QStringList{"param.sfo"}, QDir::Files, QDirIterator::Subdirectories);
-                if (it.hasNext()) {
-                    hasParamSfo = true;
+            isExtracting = false;
+            processExtractionQueue(); // Try next item
+            return;
+        }
+        
+    // Create and configure the extraction process
+    currentExtractionProcess = new QProcess(this);
+    QElapsedTimer *durationTimer = new QElapsedTimer();
+    durationTimer->start();
+    QElapsedTimer *lastOutputTimer = new QElapsedTimer();
+    lastOutputTimer->start();
+        
+        // IMPORTANT: Do NOT set ForwardedChannels - it causes crashes!
+        // Use default Qt channel mode (MergedChannels) instead
+        
+        // Streaming output handlers for real-time feedback
+        connect(currentExtractionProcess, &QProcess::readyReadStandardOutput, this, [this, lastOutputTimer]() {
+            if (currentExtractionProcess && extractionLogWidget) {
+                QString chunk = QString::fromLocal8Bit(currentExtractionProcess->readAllStandardOutput());
+                if (!chunk.isEmpty()) {
+                    lastOutputTimer->restart();
+                    extractionLogWidget->append(chunk.trimmed());
+                    QTextCursor c = extractionLogWidget->textCursor();
+                    c.movePosition(QTextCursor::End); extractionLogWidget->setTextCursor(c);
                 }
-                
-                // If no param.sfo found, this is likely incomplete - remove it
-                if (!hasParamSfo) {
-                    QMessageBox::StandardButton reply = QMessageBox::question(this,
-                        "Incomplete Extraction Detected",
-                        QString("The output directory already exists but appears incomplete:\n%1\n\nWould you like to remove it and start fresh?").arg(outputPath),
-                        QMessageBox::Yes | QMessageBox::No);
-                    
-                    if (reply == QMessageBox::Yes) {
-                        if (!outputDir.removeRecursively()) {
-                            QMessageBox::critical(this, "Cleanup Failed",
-                                QString("Failed to remove incomplete extraction directory:\n%1").arg(outputPath));
-                            return;
-                        }
-                        // Recreate the directory
-                        outputDir.mkpath(".");
-                    } else {
-                        return; // User chose not to proceed
-                    }
+            }
+        });
+        connect(currentExtractionProcess, &QProcess::readyReadStandardError, this, [this, lastOutputTimer]() {
+            if (currentExtractionProcess && extractionLogWidget) {
+                QString chunk = QString::fromLocal8Bit(currentExtractionProcess->readAllStandardError());
+                if (!chunk.trimmed().isEmpty()) {
+                    lastOutputTimer->restart();
+                    extractionLogWidget->append(QString("<span style='color:red;'>%1</span>").arg(chunk.trimmed()));
+                    QTextCursor c = extractionLogWidget->textCursor();
+                    c.movePosition(QTextCursor::End); extractionLogWidget->setTextCursor(c);
+                }
+            }
+        });
+        // Process error diagnostics
+        connect(currentExtractionProcess, &QProcess::errorOccurred, this, [this](QProcess::ProcessError err){
+            if (extractionLogWidget) {
+                extractionLogWidget->append(QString("<span style='color:red;'>[process error] code=%1</span>").arg(static_cast<int>(err)));
+            }
+        });
+
+        // Heartbeat timer to reassure user during long periods of silence
+        QTimer *heartbeat = new QTimer(this);
+        heartbeat->setInterval(5000);
+        connect(heartbeat, &QTimer::timeout, this, [this, durationTimer]() {
+            if (extractionLogWidget) {
+                extractionLogWidget->append(QString("[heartbeat] still extracting... %1s elapsed")
+                                              .arg(durationTimer->elapsed()/1000));
+            }
+        });
+        heartbeat->start();
+        
+    connect(currentExtractionProcess, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+        this, [this, request, durationTimer, heartbeat, lastOutputTimer](int exitCode, QProcess::ExitStatus exitStatus) {
+            qDebug() << "Extraction process finished. Exit code:" << exitCode << "Status:" << exitStatus;
+
+            // Read any remaining buffered output
+            QString stdOut, stdErr;
+            if (currentExtractionProcess) {
+                stdOut = QString::fromLocal8Bit(currentExtractionProcess->readAllStandardOutput());
+                stdErr = QString::fromLocal8Bit(currentExtractionProcess->readAllStandardError());
+            }
+            if (extractionLogWidget) {
+                if (!stdOut.trimmed().isEmpty()) {
+                    extractionLogWidget->append(stdOut.trimmed());
+                }
+                if (!stdErr.trimmed().isEmpty()) {
+                    extractionLogWidget->append(QString("<span style='color:red;'>%1</span>").arg(stdErr.trimmed()));
                 }
             }
             
-            // Check disk space before starting extraction
-            QString spaceError;
-            bool hasSpace = checkDiskSpace(outputPath, metadata.pkg_size, spaceError);
-            
-            if (!hasSpace) {
-                if (spaceError.contains("Warning: Low disk space")) {
-                    // Show warning and ask user if they want to continue
-                    QMessageBox::StandardButton reply = QMessageBox::warning(this, 
-                        "Low Disk Space Warning", 
-                        spaceError,
-                        QMessageBox::Yes | QMessageBox::No);
-                    
-                    if (reply != QMessageBox::Yes) {
-                        return; // User chose not to continue
-                    }
+            // Log completion status
+            if (extractionLogWidget) {
+                if (exitStatus == QProcess::NormalExit && exitCode == 0) {
+                    extractionLogWidget->append("\n✓ EXTRACTION COMPLETED SUCCESSFULLY\n");
                 } else {
-                    // Critical space error - don't allow extraction
-                    QMessageBox::critical(this, "Insufficient Disk Space", spaceError);
-                    return;
+                    extractionLogWidget->append(QString("\n✗ EXTRACTION FAILED - Exit code: %1\n").arg(exitCode));
                 }
-            }
-
-            QProgressDialog* progressDialog = new QProgressDialog("Extracting PKG file...", "Cancel", 0, 100, this);
-            progressDialog->setWindowModality(Qt::WindowModal);
-            progressDialog->setMinimumDuration(0);
-            progressDialog->show();
-
-            // Use QPointer for safe access in lambda
-            QPointer<QProgressDialog> dialogPtr(progressDialog);
-
-            // Wire PKG progress to dialog
-            pkg.SetProgressCallback([this, dialogPtr](const PKGProgress& pr){
-                try {
-                    if (!dialogPtr) return; // Check if dialog still exists
-                    
-                    // Update progress bar
-                    int percentage = static_cast<int>(std::clamp(pr.percent, 0.0, 100.0));
-                    dialogPtr->setValue(percentage);
-                    
-                    // Build stage-specific label
-                    QString stageText;
-                    switch (pr.stage) {
-                        case PKGProgress::Stage::Opening:
-                            stageText = "Opening PKG file...";
-                            break;
-                        case PKGProgress::Stage::ReadingMetadata:
-                            stageText = "Reading PKG metadata...";
-                            break;
-                        case PKGProgress::Stage::ParsingPFS:
-                            stageText = "Parsing PFS structure...";
-                            break;
-                        case PKGProgress::Stage::Extracting:
-                            stageText = "Extracting files...";
-                            break;
-                        case PKGProgress::Stage::Done:
-                            stageText = "Extraction complete!";
-                            break;
-                        case PKGProgress::Stage::Error:
-                            stageText = "Error during extraction";
-                            break;
-                    }
-                    
-                    // Build detailed progress label
-                    QString label;
-                    if (pr.stage == PKGProgress::Stage::Extracting && pr.files_total > 0) {
-                        QString currentFile = pr.current_file.empty() ? QString("...") : QString::fromStdString(pr.current_file);
-                        label = QString("%1\n\nFile: %2\nProgress: %3 / %4 files (%5%)\nData: %6 / %7")
-                            .arg(stageText)
-                            .arg(currentFile)
-                            .arg(pr.files_done)
-                            .arg(pr.files_total)
-                            .arg(percentage)
-                            .arg(formatBytes(pr.bytes_done))
-                            .arg(formatBytes(pr.bytes_total));
-                    } else if (!pr.message.empty()) {
-                        label = QString("%1\n\n%2")
-                            .arg(stageText)
-                            .arg(QString::fromStdString(pr.message));
-                    } else {
-                        label = stageText;
-                    }
-                    
-                    dialogPtr->setLabelText(label);
-                    QApplication::processEvents();
-                } catch (...) {
-                    // Swallow any UI update exception
-                }
-            });
-            
-            QString actualExtractionPath = outputPath;
-            QString tempUpdatePath;
-            
-            // If this is an update, extract to temporary directory first
-            if (isUpdate) {
-                // Create a simpler temp path without special characters
-                QString safeTitleId = QString::fromStdString(metadata.title_id);
-                safeTitleId = safeTitleId.replace(QRegularExpression("[^A-Za-z0-9]"), "_");
-                
-                tempUpdatePath = QDir::temp().absoluteFilePath(
-                    QString("shadps4_update_%1_%2")
-                    .arg(safeTitleId)
-                    .arg(QDateTime::currentMSecsSinceEpoch())
-                );
-                
-                // Ensure the temp directory exists and is writable
-                QDir tempDir(tempUpdatePath);
-                if (!tempDir.mkpath(".")) {
-                    QMessageBox::critical(this, "Extraction Error", 
-                        QString("Failed to create temporary directory: %1").arg(tempUpdatePath));
-                    return;
-                }
-                
-                actualExtractionPath = tempUpdatePath;
-                progressDialog->setLabelText("Extracting update to temporary location...");
+                QTextCursor cursor = extractionLogWidget->textCursor();
+                cursor.movePosition(QTextCursor::End);
+                extractionLogWidget->setTextCursor(cursor);
             }
             
-            bool extractSuccess = pkg.Extract(pkgPathFs, std::filesystem::path(actualExtractionPath.toStdString()), failReason);
+            // Clean up process and heartbeat
+            if (currentExtractionProcess) { currentExtractionProcess->deleteLater(); currentExtractionProcess = nullptr; }
+            if (heartbeat) { heartbeat->stop(); heartbeat->deleteLater(); }
+            qint64 ms = durationTimer ? durationTimer->elapsed() : 0;
+            delete durationTimer;
+            delete lastOutputTimer;
             
-            // If Extract succeeded, now extract all individual files
-            if (extractSuccess) {
-                uint32_t totalFiles = pkg.GetNumberOfFiles();
-                for (uint32_t i = 0; i < totalFiles; ++i) {
-                    try {
-                        pkg.ExtractFiles(static_cast<int>(i));
-                    } catch (const std::exception& e) {
-                        failReason = std::string("Failed to extract file index ") + std::to_string(i) + ": " + e.what();
-                        extractSuccess = false;
-                        break;
-                    } catch (...) {
-                        failReason = std::string("Unknown error extracting file index ") + std::to_string(i);
-                        extractSuccess = false;
-                        break;
-                    }
-                    
-                    // Dialog might be closed by user
-                    if (!dialogPtr) {
-                        extractSuccess = false;
-                        failReason = "Extraction cancelled by user";
-                        break;
-                    }
-                }
-            }
-            
-            // Handle update merging if this was an update
-            if (extractSuccess && isUpdate) {
-                progressDialog->setLabelText("Merging update files...");
-                progressDialog->setValue(95);
-                QApplication::processEvents();
+            // Check result
+            if (exitStatus == QProcess::NormalExit && exitCode == 0) {
+                qDebug() << "✓ PKG extraction completed successfully:" << request.pkgPath;
+                qDebug() << "  Extracted to:" << request.outputPath;
                 
-                auto mergeResult = UpdateMerger::mergeUpdateToBaseGame(tempUpdatePath.toStdString(), outputPath.toStdString(), true);
-                if (!mergeResult.success) {
-                    // Clean up temp directory on failure
-                    QDir(tempUpdatePath).removeRecursively();
-                    progressDialog->close();
-                    progressDialog->deleteLater();
-                    QMessageBox::critical(this, "Update Merge Failed", 
-                        QString("Failed to merge update: %1").arg(QString::fromStdString(mergeResult.errorMessage)));
-                    return;
+                // NO popup on success - just continue silently
+                if (extractionLogWidget) {
+                    extractionLogWidget->append(QString("Finished in %1s").arg(ms/1000.0, 0, 'f', 1));
                 }
-                
-                // Update progress to show merge completion
-                progressDialog->setValue(100);
-                QApplication::processEvents();
-            }
-            
-            // Clear callback before deleting dialog to prevent use-after-free
-            pkg.SetProgressCallback(nullptr);
-            
-            progressDialog->close();
-            progressDialog->deleteLater();
-            
-            if (!extractSuccess) {
-                // Clean up temp directory if extraction failed
-                if (isUpdate && !tempUpdatePath.isEmpty()) {
-                    QDir(tempUpdatePath).removeRecursively();
-                }
-                QMessageBox::critical(this, "Extraction Failed", 
-                    QString("Failed to extract PKG file: %1").arg(QString::fromStdString(failReason)));
+                // Process next item in queue
+                onExtractionComplete();
             } else {
-                // Auto-refresh the game library without confirmation
-                gameLibrary->refreshLibrary();
+                // ERROR occurred - log and skip to next
+                qDebug() << "✗ CLI extractor FAILED:" << request.pkgPath;
+                qDebug() << "  Exit code:" << exitCode << "Status:" << exitStatus;
+                if (extractionLogWidget) {
+                    extractionLogWidget->append(QString("<span style='color:red;'>PKG extraction failed. Skipping to next in queue...</span>"));
+                }
+                // Continue with next item
+                onExtractionComplete();
+            }
+        });
+        
+        // Start the extraction process
+        QStringList arguments;
+        arguments << request.pkgPath << request.outputPath;
+        
+        // Set working directory to the extractor's directory
+        QString extractorDir = QFileInfo(extractorPath).absolutePath();
+        currentExtractionProcess->setWorkingDirectory(extractorDir);
+        
+        // DEBUG: Print environment
+        qDebug() << "QProcess environment:";
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        qDebug() << "LD_LIBRARY_PATH:" << env.value("LD_LIBRARY_PATH", "(not set)");
+        qDebug() << "PATH:" << env.value("PATH");
+        
+        qDebug() << "Starting extractor:" << extractorPath << "with args:" << arguments;
+        qDebug() << "Working directory:" << extractorDir;
+        currentExtractionProcess->start(extractorPath, arguments);
+        
+        if (!currentExtractionProcess->waitForStarted(5000)) {
+            qDebug() << "ERROR: Failed to start extraction process";
+            if (extractionLogWidget) {
+                extractionLogWidget->append(QString("<span style='color:red;'>ERROR: Failed to start process - %1</span>")
+                    .arg(currentExtractionProcess->errorString()));
             }
             
-        } catch (const std::bad_alloc& e) {
-            QMessageBox::critical(this, "Memory Error", 
-                QString("Out of memory during PKG extraction: %1").arg(QString::fromStdString(e.what())));
-        } catch (const std::filesystem::filesystem_error& e) {
-            QMessageBox::critical(this, "File System Error", 
-                QString("File system error during PKG extraction: %1").arg(QString::fromStdString(e.what())));
-        } catch (const std::exception& e) {
-            QMessageBox::critical(this, "Extraction Error", 
-                QString("Error extracting PKG file: %1").arg(QString::fromStdString(e.what())));
-        } catch (...) {
-            QMessageBox::critical(this, "Unknown Error", 
-                "An unknown error occurred during PKG extraction. The PKG file may be corrupted or invalid.");
+            currentExtractionProcess->deleteLater();
+            currentExtractionProcess = nullptr;
+            isExtracting = false;
+            processExtractionQueue(); // Try next item
+        }
+    }
+    
+    void onExtractionComplete() {
+        qDebug() << "onExtractionComplete() called";
+        
+        // Mark extraction as complete
+        isExtracting = false;
+        
+        // Check if there are more items to process
+        if (!extractionQueue.isEmpty()) {
+            qDebug() << "Processing next extraction - queue size:" << extractionQueue.size();
+            // Small delay to ensure process cleanup is complete
+            QTimer::singleShot(500, this, &MainWindow::processExtractionQueue);
+        } else {
+            qDebug() << "All extractions completed - queue is empty";
+            
+            // Refresh game library after all extractions complete
+            if (gameLibrary) {
+                QTimer::singleShot(200, gameLibrary, &GameLibrary::refreshLibrary);
+            }
+            
+            // Log completion message
+            if (extractionLogWidget) {
+                extractionLogWidget->append("\n=== ALL EXTRACTIONS COMPLETE ===\n");
+            }
         }
     }
 
-    bool detectIfUpdate(const QString& pkgPath) {
-        QFileInfo fileInfo(pkgPath);
-        QString baseName = fileInfo.completeBaseName();
-        QString originalBaseName = baseName; // Keep original case for better matching
+private:
+
+    // Detect PKG type from filename using the same logic as downloads_folder
+    PkgType detectPkgType(const QString& baseName) {
+        // Convert to lowercase for case-insensitive matching
+        QString lowerBaseName = baseName.toLower();
+        QString originalBaseName = baseName; // Keep original case for regex matching
         
-        // Check for update/patch patterns (same logic as in downloads_folder.cpp)
+        // First check for DLC patterns (most specific)
+        if (lowerBaseName.contains("dlc") ||
+            lowerBaseName.contains("addon") ||
+            lowerBaseName.contains("season") ||
+            lowerBaseName.contains("expansion") ||
+            lowerBaseName.contains("-ac") || lowerBaseName.contains("_ac") ||
+            // Only consider _fxd as DLC if it explicitly contains "DLC" in the name
+            (lowerBaseName.contains("_fxd") && lowerBaseName.contains("dlc")) ||
+            QRegularExpression("dlc\\d+", QRegularExpression::CaseInsensitiveOption).match(originalBaseName).hasMatch()) {
+            return PkgType::DLC;
+        }
+        
+        // Then check for update/patch patterns (be more specific about updates)
         if (originalBaseName.contains("PATCH", Qt::CaseInsensitive) ||
             originalBaseName.contains("UPDATE", Qt::CaseInsensitive) ||
+            lowerBaseName.contains("_update") ||
+            lowerBaseName.contains("-update") ||
+            lowerBaseName.contains("backport") ||
             // Only consider versions > 1.00 as updates, not v1.00 which is usually base
             QRegularExpression("v([2-9]\\d*\\.\\d+|1\\.[1-9]\\d*|1\\.0[1-9])", QRegularExpression::CaseInsensitiveOption).match(originalBaseName).hasMatch() ||
             // A0101 and higher (A0100 is base, A0101+ are updates)
             QRegularExpression("A0(10[1-9]|1[1-9]\\d|[2-9]\\d\\d)", QRegularExpression::CaseInsensitiveOption).match(originalBaseName).hasMatch()) {
-            return true;
+            return PkgType::Update;
         }
         
-        return false;
+        // Default to base game
+        return PkgType::BaseGame;
     }
 
-private:
     GameLibrary* gameLibrary;
 };
+
+// ---- MainWindow method definitions ----
+void MainWindow::onSettingsChanged() {
+    if (gameLibrary) {
+        gameLibrary->refreshLibrary();
+    }
+}
+
+void MainWindow::connectSignals() {
+    // Reserved for future cross-component signals
+}
+
+void MainWindow::setupUI() {
+    setWindowTitle("ShadPs4 Manager");
+    setMinimumSize(1200, 800);
+
+    QWidget* centralWidget = new QWidget(this);
+    setCentralWidget(centralWidget);
+    QVBoxLayout* mainLayout = new QVBoxLayout(centralWidget);
+
+    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    QPushButton* launchButton = new QPushButton("Launch Emulator", this);
+    launchButton->setStyleSheet("QPushButton { background-color: #6A5ACD; color: white; font-weight: bold; padding: 8px; }");
+    connect(launchButton, &QPushButton::clicked, this, &MainWindow::launchEmulator);
+    buttonLayout->addWidget(launchButton);
+    
+    QPushButton* killButton = new QPushButton("Kill ShadPS4", this);
+    killButton->setStyleSheet("QPushButton { background-color: #DC143C; color: white; font-weight: bold; padding: 8px; }");
+    connect(killButton, &QPushButton::clicked, this, &MainWindow::killShadPS4);
+    buttonLayout->addWidget(killButton);
+    
+    buttonLayout->addStretch();
+    QPushButton* settingsButton = new QPushButton("Settings", this);
+    connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
+    buttonLayout->addWidget(settingsButton);
+    mainLayout->addLayout(buttonLayout);
+
+    QTabWidget* tabWidget = new QTabWidget(this);
+    mainTabWidget = tabWidget;  // Store reference for tab switching
+    gameLibrary = new GameLibrary();
+    tabWidget->addTab(gameLibrary, "Game Library");
+    DownloadsFolder* downloadsFolder = new DownloadsFolder();
+    tabWidget->addTab(downloadsFolder, "Downloads Folder");
+    extractionLogWidget = new QTextEdit();
+    extractionLogWidget->setReadOnly(true);
+    extractionLogWidget->setFont(QFont("Monospace", 9));
+    extractionLogWidget->setPlaceholderText("Extraction output will appear here...");
+    tabWidget->addTab(extractionLogWidget, "Extraction Log");
+    mainLayout->addWidget(tabWidget);
+    connect(downloadsFolder, &DownloadsFolder::extractionRequested, this, &MainWindow::extractPkgFile);
+}
+
+void MainWindow::openSettings() {
+    QDialog* settingsDialog = new QDialog(this);
+    settingsDialog->setWindowTitle("Settings");
+    settingsDialog->setMinimumSize(800, 600);
+
+    auto* dialogLayout = new QVBoxLayout(settingsDialog);
+    auto* settingsPageDialog = new SettingsPage();
+    dialogLayout->addWidget(settingsPageDialog);
+
+    auto* buttonLayout = new QHBoxLayout();
+    buttonLayout->addStretch();
+    auto* closeButton = new QPushButton("Close");
+    connect(closeButton, &QPushButton::clicked, settingsDialog, &QDialog::accept);
+    buttonLayout->addWidget(closeButton);
+    dialogLayout->addLayout(buttonLayout);
+
+    connect(settingsPageDialog, &SettingsPage::settingsChanged, this, &MainWindow::onSettingsChanged);
+
+    settingsDialog->exec();
+    settingsDialog->deleteLater();
+}
 
 int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
 
     // Set application properties
     app.setApplicationName("ShadPs4 Manager");
-    app.setApplicationVersion("1.0.0");
+    app.setApplicationVersion("1.0.1");
     app.setOrganizationName("ShadPs4");
+
+    // Create splash screen
+    QPixmap splashPixmap(400, 200);
+    splashPixmap.fill(QColor(40, 40, 50));
+    
+    QPainter painter(&splashPixmap);
+    painter.setPen(Qt::white);
+    
+    // Title
+    QFont titleFont = painter.font();
+    titleFont.setPointSize(20);
+    titleFont.setBold(true);
+    painter.setFont(titleFont);
+    painter.drawText(splashPixmap.rect(), Qt::AlignCenter, "ShadPs4 Manager");
+    
+    // Version
+    QFont versionFont = painter.font();
+    versionFont.setPointSize(10);
+    versionFont.setBold(false);
+    painter.setFont(versionFont);
+    painter.drawText(QRect(0, 120, 400, 30), Qt::AlignCenter, "Version 1.0.1");
+    
+    // Info text
+    painter.drawText(QRect(0, 150, 400, 30), Qt::AlignCenter, "Loading application...");
+    painter.end();
+    
+    QSplashScreen splash(splashPixmap);
+    splash.show();
+    app.processEvents();
+    
+    // Verify CLI extractor exists
+    QString extractorPath = QCoreApplication::applicationDirPath() + "/shadps4-pkg-extractor";
+    splash.showMessage("Checking dependencies...", Qt::AlignBottom | Qt::AlignCenter, Qt::white);
+    app.processEvents();
+    
+    if (!QFile::exists(extractorPath)) {
+        splash.close();
+        QMessageBox::critical(nullptr, "Missing Dependency",
+            QString("Critical: CLI extraction tool not found!\n\n"
+                    "Expected location: %1\n\n"
+                    "The GUI requires the shadps4-pkg-extractor CLI tool.\n"
+                    "Both binaries must be built and placed in the bin/ folder.\n\n"
+                    "Please rebuild the project completely.").arg(extractorPath));
+        return 1;
+    }
+    
+    splash.showMessage("Initializing UI...", Qt::AlignBottom | Qt::AlignCenter, Qt::white);
+    app.processEvents();
+    QThread::msleep(300);
 
     MainWindow window;
     window.show();
+    splash.finish(&window);
 
     return app.exec();
 }

@@ -26,21 +26,34 @@ void GameCard::setupUI() {
     m_mainContainer = new QWidget(this);
     m_mainContainer->setObjectName("mainContainer");
 
-    // Main vertical layout - play button at top, cover in middle, info buttons at bottom
+    // Main vertical layout - title at top with more space, cover and icons at bottom
     m_mainLayout = new QVBoxLayout(m_mainContainer);
     m_mainLayout->setSpacing(8);
     m_mainLayout->setContentsMargins(8, 8, 8, 8);
 
     // Play buttons removed - cover image will be clickable for launch
 
-    // Title label (above cover)
+    // Title label (at top with more space)
     m_titleLabel = new QLabel(m_mainContainer);
     m_titleLabel->setObjectName("titleLabel");
     m_titleLabel->setWordWrap(true);
-    m_titleLabel->setMaximumHeight(40);
-    m_titleLabel->setAlignment(Qt::AlignCenter);
+    m_titleLabel->setMinimumHeight(60);  // Increased from 40
+    m_titleLabel->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
 
-    // Cover image (center)
+    // Status info panel (below title)
+    QWidget* statusPanel = new QWidget(m_mainContainer);
+    QVBoxLayout* statusPanelLayout = new QVBoxLayout(statusPanel);
+    statusPanelLayout->setSpacing(2);
+    statusPanelLayout->setContentsMargins(2, 2, 2, 2);
+
+    m_statusLabel = new QLabel(statusPanel);
+    m_statusLabel->setObjectName("statusLabel");
+    m_statusLabel->setVisible(false);
+
+    statusPanelLayout->addWidget(m_statusLabel);
+    statusPanelLayout->addStretch();
+
+    // Cover image (at bottom)
     m_coverImage = new QLabel(m_mainContainer);
     m_coverImage->setObjectName("coverImage");
     m_coverImage->setMinimumSize(160, 200);
@@ -53,7 +66,7 @@ void GameCard::setupUI() {
     // Make cover image clickable
     m_coverImage->installEventFilter(this);
 
-    // Info buttons container (bottom - fit under cover width)
+    // Info buttons container (bottom - under cover image)
     QWidget* infoButtonContainer = new QWidget(m_mainContainer);
     QHBoxLayout* infoButtonLayout = new QHBoxLayout(infoButtonContainer);
     infoButtonLayout->setContentsMargins(0, 0, 0, 0);
@@ -94,25 +107,12 @@ void GameCard::setupUI() {
     infoButtonLayout->addWidget(m_deleteButton);
     infoButtonLayout->addWidget(m_refreshButton);
 
-    // Status info panel (just for status label)
-    QWidget* statusPanel = new QWidget(m_mainContainer);
-    QVBoxLayout* statusPanelLayout = new QVBoxLayout(statusPanel);
-    statusPanelLayout->setSpacing(2);
-    statusPanelLayout->setContentsMargins(2, 2, 2, 2);
-
-    m_statusLabel = new QLabel(statusPanel);
-    m_statusLabel->setObjectName("statusLabel");
-    m_statusLabel->setVisible(false);
-
-    statusPanelLayout->addWidget(m_statusLabel);
-    statusPanelLayout->addStretch();
-
-    // Add all components to main vertical layout
-    m_mainLayout->addWidget(m_titleLabel, 0, Qt::AlignCenter);
+    // Add all components to main vertical layout (title at top, cover/icons at bottom)
+    m_mainLayout->addWidget(m_titleLabel, 0, Qt::AlignTop | Qt::AlignHCenter);
+    m_mainLayout->addWidget(statusPanel);
+    m_mainLayout->addStretch();  // This pushes cover and icons to bottom
     m_mainLayout->addWidget(m_coverImage, 0, Qt::AlignCenter);
     m_mainLayout->addWidget(infoButtonContainer, 0, Qt::AlignCenter);
-    m_mainLayout->addWidget(statusPanel);
-    m_mainLayout->addStretch();
 
     QVBoxLayout* mainLayout = new QVBoxLayout(this);
     mainLayout->addWidget(m_mainContainer);

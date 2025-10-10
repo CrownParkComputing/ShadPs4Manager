@@ -223,6 +223,15 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
     u32 offset = pkgheader.pkg_table_entry_offset;
     u32 n_files = pkgheader.pkg_table_entry_count;
 
+    {
+        PKGProgress loop_prog{};
+        loop_prog.stage = PKGProgress::Stage::ParsingPFS;
+        loop_prog.message = "Processing " + std::to_string(n_files) + " PKG table entries";
+        if (progress_cb_) {
+            progress_cb_(loop_prog);
+        }
+    }
+
     std::array<u8, 64> concatenated_ivkey_dk3;
     std::array<u8, 32> seed_digest;
     std::array<std::array<u8, 32>, 7> digest1;
@@ -235,6 +244,15 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
     }
 
     for (int i = 0; i < n_files; i++) {
+        {
+            PKGProgress entry_prog{};
+            entry_prog.stage = PKGProgress::Stage::ParsingPFS;
+            entry_prog.message = "Processing entry " + std::to_string(i + 1) + "/" + std::to_string(n_files);
+            if (progress_cb_) {
+                progress_cb_(entry_prog);
+            }
+        }
+        
         PKGEntry entry{};
         file.Read(entry.id);
         file.Read(entry.filename_offset);
@@ -244,6 +262,16 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
         file.Read(entry.size);
         file.Seek(8, Common::FS::SeekOrigin::CurrentPosition);
 
+        {
+            PKGProgress entry_detail{};
+            entry_detail.stage = PKGProgress::Stage::ParsingPFS;
+            entry_detail.message = "Entry " + std::to_string(i + 1) + ": ID=0x" + 
+                                  std::to_string(entry.id) + " size=" + std::to_string(entry.size);
+            if (progress_cb_) {
+                progress_cb_(entry_detail);
+            }
+        }
+
         auto currentPos = file.Tell();
 
         // Try to figure out the name
@@ -252,6 +280,25 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
         std::filesystem::create_directories(filepath.parent_path());
 
         if (name.empty()) {
+            {
+                PKGProgress empty_name{};
+                empty_name.stage = PKGProgress::Stage::ParsingPFS;
+                empty_name.message = "Entry " + std::to_string(i + 1) + " has no name, extracting as ID " + std::to_string(entry.id);
+                if (progress_cb_) {
+                    progress_cb_(empty_name);
+                }
+            }
+            
+            // Bounds check the entry offset and size
+            if (entry.offset + entry.size > pkgSize) {
+                failreason = "Entry " + std::to_string(i + 1) + " offset/size exceeds PKG size";
+                PKGProgress prog{};
+                prog.stage = PKGProgress::Stage::Error;
+                prog.message = failreason;
+                reportProgress(prog);
+                return false;
+            }
+            
             // Just print with id
             Common::FS::IOFile out(extract_path / "sce_sys" / std::to_string(entry.id),
                                    Common::FS::FileAccessMode::Write);
@@ -265,6 +312,15 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
             file.ReadRaw<u8>(data.data(), entry.size);
             out.WriteRaw<u8>(data.data(), entry.size);
             out.Close();
+
+            {
+                PKGProgress complete{};
+                complete.stage = PKGProgress::Stage::ParsingPFS;
+                complete.message = "Entry " + std::to_string(i + 1) + " extracted successfully";
+                if (progress_cb_) {
+                    progress_cb_(complete);
+                }
+            }
 
             file.Seek(currentPos);
             continue;
@@ -303,17 +359,104 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
             // file.Seek(entry.offset, fsSeekSet);
         }
 
+        {
+            PKGProgress named_entry{};
+            named_entry.stage = PKGProgress::Stage::ParsingPFS;
+            named_entry.message = "Entry " + std::to_string(i + 1) + " extracting as '" + std::string(name) + "'";
+            if (progress_cb_) {
+                progress_cb_(named_entry);
+            }
+        }
+
+        // Bounds check before extraction
+        if (entry.offset + entry.size > pkgSize) {
+            failreason = "Entry " + std::to_string(i + 1) + " (" + std::string(name) + ") offset/size exceeds PKG size";
+            PKGProgress prog{};
+            prog.stage = PKGProgress::Stage::Error;
+            prog.message = failreason;
+            reportProgress(prog);
+            return false;
+        }
+
+        {
+            PKGProgress opening{};
+            opening.stage = PKGProgress::Stage::ParsingPFS;
+            opening.message = "Entry " + std::to_string(i + 1) + ": Opening output file";
+            if (progress_cb_) {
+                progress_cb_(opening);
+            }
+        }
+
         Common::FS::IOFile out(extract_path / "sce_sys" / name, Common::FS::FileAccessMode::Write);
+        
+        {
+            PKGProgress seeking{};
+            seeking.stage = PKGProgress::Stage::ParsingPFS;
+            seeking.message = "Entry " + std::to_string(i + 1) + ": Seeking to offset " + std::to_string(entry.offset);
+            if (progress_cb_) {
+                progress_cb_(seeking);
+            }
+        }
+        
         if (!file.Seek(entry.offset)) {
             failreason = "Failed to seek to PKG entry offset";
             return false;
         }
 
+        {
+            PKGProgress reading{};
+            reading.stage = PKGProgress::Stage::ParsingPFS;
+            reading.message = "Entry " + std::to_string(i + 1) + ": Reading " + std::to_string(entry.size) + " bytes";
+            if (progress_cb_) {
+                progress_cb_(reading);
+            }
+        }
+
         std::vector<u8> data;
-        data.resize(entry.size);
+        try {
+            data.resize(entry.size);
+        } catch (const std::exception& e) {
+            failreason = "Failed to allocate " + std::to_string(entry.size) + " bytes for entry " + std::to_string(i + 1);
+            return false;
+        }
+        
+        // Verify we can read this much data
+        u64 current_pos = file.Tell();
+        u64 bytes_available = pkgSize - current_pos;
+        if (entry.size > bytes_available) {
+            failreason = "Entry " + std::to_string(i + 1) + " requests " + std::to_string(entry.size) + 
+                        " bytes but only " + std::to_string(bytes_available) + " available";
+            return false;
+        }
+        
         file.ReadRaw<u8>(data.data(), entry.size);
+        
+        {
+            PKGProgress writing{};
+            writing.stage = PKGProgress::Stage::ParsingPFS;
+            writing.message = "Entry " + std::to_string(i + 1) + ": Writing to file";
+            if (progress_cb_) {
+                progress_cb_(writing);
+            }
+        }
+        
         out.WriteRaw<u8>(data.data(), entry.size);
         out.Close();
+        
+        {
+            PKGProgress done{};
+            done.stage = PKGProgress::Stage::ParsingPFS;
+            done.message = "Entry " + std::to_string(i + 1) + ": Completed successfully";
+            if (progress_cb_) {
+                progress_cb_(done);
+            }
+        }
+        
+        // Restore file position for next PKG table entry
+        if (!file.Seek(currentPos)) {
+            failreason = "Failed to restore file position after entry " + std::to_string(i + 1);
+            return false;
+        }
 
         // Decrypt Np stuff and overwrite.
         if (entry.id == 0x400 || entry.id == 0x401 || entry.id == 0x402 ||
@@ -346,13 +489,43 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
 
     // Read the seed
     std::array<u8, 16> seed;
-    if (!file.Seek(pkgheader.pfs_image_offset + 0x370)) {
-        failreason = "Failed to seek to PFS image offset";
+    u64 seed_offset = pkgheader.pfs_image_offset + 0x370;
+    
+    // Bounds check for seed offset
+    if (seed_offset + sizeof(seed) > pkgSize) {
+        failreason = "Seed offset beyond PKG file size";
+        prog.stage = PKGProgress::Stage::Error;
+        prog.message = failreason;
+        reportProgress(prog);
         return false;
     }
+    
+    if (!file.Seek(seed_offset)) {
+        failreason = "Failed to seek to PFS image offset for seed";
+        return false;
+    }
+    
+    {
+        PKGProgress seed_prog{};
+        seed_prog.stage = PKGProgress::Stage::ParsingPFS;
+        seed_prog.message = "Reading seed from offset 0x" + std::to_string(seed_offset);
+        if (progress_cb_) {
+            progress_cb_(seed_prog);
+        }
+    }
+    
     file.Read(seed);
 
     // Get data and tweak keys.
+    {
+        PKGProgress crypto_prog{};
+        crypto_prog.stage = PKGProgress::Stage::ParsingPFS;
+        crypto_prog.message = "Generating crypto keys...";
+        if (progress_cb_) {
+            progress_cb_(crypto_prog);
+        }
+    }
+    
     PKG::crypto.PfsGenCryptoKey(ekpfsKey, seed, dataKey, tweakKey);
     const u32 length = pkgheader.pfs_cache_size * 0x2;
 
@@ -360,11 +533,11 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
     int num_blocks = 0;
     std::vector<u8> pfsc;
     
-    // Debug: Print length immediately
+    // Debug: Print length and pfs_image_size immediately
     {
         PKGProgress len_prog{};
         len_prog.stage = PKGProgress::Stage::ParsingPFS;
-        len_prog.message = "PFS cache length: " + std::to_string(length) + " bytes (pfs_cache_size=" + std::to_string(pkgheader.pfs_cache_size) + ")";
+        len_prog.message = "PFS cache length: " + std::to_string(length) + " bytes (pfs_cache_size=" + std::to_string(pkgheader.pfs_cache_size) + "), pfs_image_size=" + std::to_string(pkgheader.pfs_image_size);
         if (progress_cb_) {
             progress_cb_(len_prog);
         }
@@ -379,16 +552,44 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
     }
     
     if (length != 0) {
-        // Read the full PFS cache region
-        std::vector<u8> pfs_encrypted(length);
-        std::vector<u8> pfs_decrypted(length);
+        // Calculate actual PFS image size available
+        const u64 pfs_image_actual_size = pkgheader.pfs_image_size;
+        const u64 bytes_after_offset = pkgSize - pkgheader.pfs_image_offset;
+        const u64 max_read_size = std::min({static_cast<u64>(length), pfs_image_actual_size, bytes_after_offset});
         
-        file.Seek(pkgheader.pfs_image_offset);
+        // Read the PFS cache region (use actual available size, not theoretical length)
+        std::vector<u8> pfs_encrypted(max_read_size);
+        std::vector<u8> pfs_decrypted(max_read_size);
+        
+        if (!file.Seek(pkgheader.pfs_image_offset)) {
+            failreason = "Failed to seek to PFS image for reading";
+            return false;
+        }
         file.Read(pfs_encrypted);
         file.Close();
         
+        // Debug: Report before decryption
+        {
+            PKGProgress decrypt_prog{};
+            decrypt_prog.stage = PKGProgress::Stage::ParsingPFS;
+            decrypt_prog.message = "Decrypting PFS data (" + std::to_string(max_read_size) + " bytes)...";
+            if (progress_cb_) {
+                progress_cb_(decrypt_prog);
+            }
+        }
+        
         // Decrypt the entire PFS cache region once
         PKG::crypto.decryptPFS(dataKey, tweakKey, pfs_encrypted, pfs_decrypted, 0);
+        
+        // Debug: Report after decryption
+        {
+            PKGProgress decrypt_done_prog{};
+            decrypt_done_prog.stage = PKGProgress::Stage::ParsingPFS;
+            decrypt_done_prog.message = "Decryption complete, searching for PFSC...";
+            if (progress_cb_) {
+                progress_cb_(decrypt_done_prog);
+            }
+        }
         
         // Find PFSC offset in the decrypted data
         pfsc_offset = GetPFSCOffset(pfs_decrypted);
@@ -410,8 +611,10 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
             return false;
         }
         
-        pfsc.resize(length - pfsc_offset);
-        std::memcpy(pfsc.data(), pfs_decrypted.data() + pfsc_offset, length - pfsc_offset);
+        // Calculate the actual available data size from pfsc_offset to end of buffer
+        const size_t pfsc_data_size = pfs_decrypted.size() - pfsc_offset;
+        pfsc.resize(pfsc_data_size);
+        std::memcpy(pfsc.data(), pfs_decrypted.data() + pfsc_offset, pfsc_data_size);
         
         // Read PFSC header to get block information
         PFSCHdr pfsChdr;
@@ -486,6 +689,16 @@ bool PKG::Extract(const std::filesystem::path& filepath, const std::filesystem::
         const u64 sectorOffset = sectorMap[i];
         const u64 sectorSize = sectorMap[i + 1] - sectorOffset;
 
+        // Bounds check: Ensure sectorOffset and sectorSize are within pfsc buffer
+        if (sectorOffset >= pfsc.size()) {
+            // Sector offset is beyond buffer, skip this block
+            continue;
+        }
+        if (sectorOffset + sectorSize > pfsc.size()) {
+            // Sector data would read past buffer end, skip this block
+            continue;
+        }
+        
         compressedData.resize(sectorSize);
         std::memcpy(compressedData.data(), pfsc.data() + sectorOffset, sectorSize);
 
@@ -689,10 +902,28 @@ void PKG::ExtractFiles(const int index) {
             int sectorOffsetMask = (sectorOffset + pfsc_offset) & 0xFFFFF000;
             int previousData = (sectorOffset + pfsc_offset) - sectorOffsetMask;
 
-            pkgFile.Seek(fileOffset - previousData);
-            pkgFile.Read(pfsc);
-
-            PKG::crypto.decryptPFS(dataKey, tweakKey, pfsc, pfs_decrypted, currentSector1);
+            u64 seekPos = fileOffset - previousData;
+            
+            // Calculate how much data is actually available to read
+            u64 bytes_remaining = pkgSize - seekPos;
+            u64 safe_read_size = std::min(pfsc_buf_size, bytes_remaining);
+            
+            // Only seek and read if we're within file bounds
+            if (bytes_remaining > 0) {
+                pkgFile.Seek(seekPos);
+                
+                // Create temporary buffer for actual read size
+                std::vector<u8> pfsc_temp(safe_read_size);
+                std::vector<u8> pfs_temp(safe_read_size);
+                
+                pkgFile.ReadRaw<u8>(pfsc_temp.data(), safe_read_size);
+                PKG::crypto.decryptPFS(dataKey, tweakKey, pfsc_temp, pfs_temp, currentSector1);
+                
+                // Copy decrypted data to main buffer (zero-fill if needed)
+                std::memset(pfsc.data(), 0, pfsc_buf_size);
+                std::memset(pfs_decrypted.data(), 0, pfsc_buf_size);
+                std::memcpy(pfs_decrypted.data(), pfs_temp.data(), safe_read_size);
+            }
 
             compressedData.resize(sectorSize);
             std::memcpy(compressedData.data(), pfs_decrypted.data() + previousData, sectorSize);

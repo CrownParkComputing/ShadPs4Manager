@@ -6,6 +6,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QApplication>
+#include <QRegularExpression>
 
 
 
@@ -160,6 +161,10 @@ void GameLibrary::loadGames() {
     }
 
     // Look for game directories (extracted games)
+    // Folder structure:
+    // - Base game: CUSAXXXXX/ (Title ID as folder name) - ONLY THESE SHOW IN LIBRARY
+    // - Updates: CUSAXXXXX-UPDATE/ (detected and shown on card)
+    // - DLC: in DLC folder path (counted and shown on card)
     QStringList gameDirs = libraryDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
 
     if (gameDirs.isEmpty()) {
@@ -167,7 +172,23 @@ void GameLibrary::loadGames() {
         return;
     }
 
-    for (const QString& gameDirName : gameDirs) {
+    // Get DLC path for counting
+    Settings& settings = Settings::instance();
+    QString dlcPath = settings.getDlcFolderPath();
+
+    // Get only BASE game folders (Title ID format: CUSAXXXXX)
+    // Each base game shows as ONE card with update version and DLC count
+    QStringList baseGameDirs;
+    QRegularExpression baseTitleIdPattern("^CUSA[0-9]{5}$");
+    
+    for (const QString& dirName : gameDirs) {
+        // Match only base Title ID folders (exactly CUSAXXXXX format)
+        if (baseTitleIdPattern.match(dirName).hasMatch()) {
+            baseGameDirs.append(dirName);
+        }
+    }
+
+    for (const QString& gameDirName : baseGameDirs) {
         QString gamePath = libraryDir.absoluteFilePath(gameDirName);
 
         // Quick check if this is actually a game directory
@@ -192,6 +213,40 @@ void GameLibrary::loadGames() {
             gameEntry.gameData.path = gameInfo.path;
             gameEntry.gameData.localCoverPath = gameInfo.iconPath;
             gameEntry.gameData.igdbId = gameInfo.titleId.toInt();  // Use titleId as IGDB ID for now
+            
+            // Build display name with update version and DLC count
+            QString displayName = gameDirName;
+            
+            // Check for UPDATE folder (e.g., CUSA30639-UPDATE)
+            QString updateFolderName = gameDirName + "-UPDATE";
+            QString updatePath = libraryDir.absoluteFilePath(updateFolderName);
+            if (QDir(updatePath).exists()) {
+                // Try to read version from update folder's param.sfo
+                GameInfo updateInfo = parseGameInfo(updatePath);
+                if (!updateInfo.version.isEmpty()) {
+                    displayName += " (Update v" + updateInfo.version + ")";
+                } else {
+                    displayName += " (Update)";
+                }
+            }
+            
+            // Count DLC for this title ID
+            if (!dlcPath.isEmpty()) {
+                QDir dlcDir(dlcPath);
+                if (dlcDir.exists()) {
+                    QString titleDlcPath = dlcDir.absoluteFilePath(gameDirName);
+                    QDir titleDlcDir(titleDlcPath);
+                    if (titleDlcDir.exists()) {
+                        QStringList dlcDirs = titleDlcDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+                        int dlcCount = dlcDirs.size();
+                        if (dlcCount > 0) {
+                            displayName += QString(" [%1 DLC]").arg(dlcCount);
+                        }
+                    }
+                }
+            }
+            
+            gameEntry.gameData.prefixName = displayName;
 
             // Load any existing IGDB metadata
             loadGameMetadata(gameEntry);
@@ -712,8 +767,28 @@ void GameLibrary::showIgdbSearchResults(const QList<IgdbGame>& games, const Game
 
 // New handler slots for the inline buttons
 void GameLibrary::onLaunchGame(const QString& gamePath) {
+    // Determine the correct launch path
+    // If CUSAXXXXX-UPDATE exists, launch from there, otherwise use base folder
+    QString launchPath = gamePath;
+    
+    // Extract Title ID from the game path (e.g., CUSA26271 from /path/to/CUSA26271)
+    QFileInfo gamePathInfo(gamePath);
+    QString gameDirName = gamePathInfo.fileName();
+    
+    // Check if there's an UPDATE folder
+    QRegularExpression baseTitleIdPattern("^CUSA[0-9]{5}$");
+    if (baseTitleIdPattern.match(gameDirName).hasMatch()) {
+        QString updateFolderName = gameDirName + "-UPDATE";
+        QString updatePath = gamePathInfo.dir().absoluteFilePath(updateFolderName);
+        
+        if (QDir(updatePath).exists()) {
+            launchPath = updatePath;
+            statusLabel->setText("Launching from update folder: " + updateFolderName);
+        }
+    }
+    
     // Find the eboot.bin file to launch
-    QString ebootPath = findEbootBin(gamePath);
+    QString ebootPath = findEbootBin(launchPath);
     if (ebootPath.isEmpty()) {
         QMessageBox::warning(this, "Launch Error",
             "Could not find eboot.bin in the game directory. Make sure the game is properly extracted.");

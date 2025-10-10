@@ -16,6 +16,7 @@
 #include <QGroupBox>
 #include <QProgressBar>
 #include <QInputDialog>
+#include <QElapsedTimer>
 
 enum class PkgType {
     BaseGame,
@@ -85,7 +86,14 @@ private:
     QString formatFileSize(qint64 size);
     bool checkBatchDiskSpace(const QList<DownloadInfo>& packages, const QString& outputBasePath, QString& errorMessage);
     QString getProperDirectoryName(const QString& pkgPath);
+    QString getInstallPath(const DownloadInfo& pkg);
     QString formatBytes(uint64_t bytes);
+
+    // Debounce & progress tracking
+    qint64 lastScanMS = 0;          // Epoch ms of last completed scan
+    bool scanInProgress = false;    // Guard against re-entrancy
+    int lastFileCount = 0;          // For quick status comparisons
+    QElapsedTimer scanTimer;        // Measure scan duration
 
     QTreeWidget* gameTreeWidget;
     QLabel* statusLabel;

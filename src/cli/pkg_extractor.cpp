@@ -1,3 +1,25 @@
+// ShadPs4 Manager - PKG Extraction CLI Tool
+// 
+// PURPOSE:
+// Standalone command-line tool for extracting PS4 PKG files.
+// Can be used independently or called by the GUI application.
+// 
+// USAGE:
+//   shadps4-pkg-extractor <pkg_file> [output_dir]
+//   shadps4-pkg-extractor --dir <directory> [output_dir]
+// 
+// FEATURES:
+// - Real-time progress output to stdout
+// - Graceful signal handling (SIGINT/SIGTERM)
+// - Enhanced error handling with detailed messages
+// - Continues extraction on individual file errors
+// - Periodic heartbeat messages for long-running operations
+// 
+// INTEGRATION:
+// When called by the GUI, stdout/stderr are captured and displayed
+// in real-time in the Extraction Log tab. Process isolation ensures
+// crashes don't affect the GUI application.
+
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include <iostream>
 #include <filesystem>
@@ -7,7 +29,17 @@
 #include <chrono>
 #include <mutex>
 #include <atomic>
+#include <stdexcept>
+#include <csignal>
 #include "core/file_format/pkg.h"
+
+// Global flag for graceful termination on signals
+static std::atomic<bool> g_terminate{false};
+
+void signal_handler(int signum) {
+    std::cerr << "\n[signal] Received signal " << signum << ", terminating gracefully..." << std::endl;
+    g_terminate.store(true);
+}
 
 bool ProcessPkg(const std::filesystem::path& pkgPath, const std::filesystem::path& outDir) {
     std::cout << "\nProcessing PKG: " << pkgPath.filename() << std::endl;
@@ -91,30 +123,76 @@ bool ProcessPkg(const std::filesystem::path& pkgPath, const std::filesystem::pat
     }
 
     // Perform extraction (parses PFS and extracts all files with progress)
-    if (!pkg.Extract(pkgPath, actualOutDir, failReason)) {
-        std::cerr << "Extraction failed: " << failReason << std::endl;
+    // Enhanced error handling for crashes
+    std::cout << "Starting PFS extraction..." << std::endl;
+    std::cout.flush();
+    try {
+        if (!pkg.Extract(pkgPath, actualOutDir, failReason)) {
+            std::cerr << "Extraction failed: " << failReason << std::endl;
+            return false;
+        }
+    } catch (const std::out_of_range& e) {
+        std::cerr << "FATAL: Out of range error during extraction (corrupted PKG data): " << e.what() << std::endl;
+        return false;
+    } catch (const std::runtime_error& e) {
+        std::cerr << "FATAL: Runtime error during extraction: " << e.what() << std::endl;
+        return false;
+    } catch (const std::exception& e) {
+        std::cerr << "FATAL: Exception during extraction: " << e.what() << std::endl;
+        return false;
+    } catch (...) {
+        std::cerr << "FATAL: Unknown exception during extraction (possibly PFS parsing error)" << std::endl;
+        std::cerr << "This may indicate corrupted PKG or unsupported PKG format." << std::endl;
+        return false;
+    }
+
+    // Check for termination signal
+    if (g_terminate.load()) {
+        std::cerr << "Extraction cancelled by signal" << std::endl;
         return false;
     }
 
     // Now extract all the actual files from the PFS
     u32 total_files = pkg.GetNumberOfFiles();
-    std::cout << "\nExtracting " << total_files << " PFS entries (this may take a while for large PKGs)..." << std::endl;
+    std::cout << "\nExtracting " << total_files << " PFS entries..." << std::endl;
+    std::cout.flush();
     
     int files_extracted = 0;
-    int dirs_skipped = 0;
     for (u32 i = 0; i < total_files; ++i) {
+        // Check termination signal
+        if (g_terminate.load()) {
+            std::cerr << "\nExtraction cancelled by signal at file " << i << std::endl;
+            return false;
+        }
+        
         try {
             // ExtractFiles will only extract if it's a file (not directory)
             pkg.ExtractFiles(static_cast<int>(i));
             files_extracted++;
+            
+            // Periodic heartbeat every 100 files
+            if (i % 100 == 0 && i > 0) {
+                std::cout << "[progress] Extracted " << i << "/" << total_files << " entries..." << std::endl;
+                std::cout.flush();
+            }
+        } catch (const std::out_of_range& e) {
+            std::cerr << "\nError: Out of range extracting file index " << i << ": " << e.what() << std::endl;
+            // Continue with next file instead of aborting
+        } catch (const std::runtime_error& e) {
+            std::cerr << "\nError: Runtime error extracting file index " << i << ": " << e.what() << std::endl;
+            // Continue with next file
         } catch (const std::exception& e) {
             std::cerr << "\nWarning: Failed to extract file index " << i << ": " << e.what() << std::endl;
+            // Continue with next file
+        } catch (...) {
+            std::cerr << "\nWarning: Unknown error extracting file index " << i << std::endl;
+            // Continue with next file
         }
     }
     
-    std::cout << "\nExtracted " << files_extracted << " files." << std::endl;
-
-    std::cout << "Extraction completed successfully." << std::endl;
+    std::cout << "\nExtracted " << files_extracted << " files successfully." << std::endl;
+    std::cout << "Extraction completed." << std::endl;
+    std::cout.flush();
     return true;
 }
 
@@ -147,8 +225,13 @@ std::vector<std::filesystem::path> ListPkgFiles(const std::filesystem::path& dir
 }
 
 int main(int argc, char** argv) {
+    // Register signal handlers for graceful termination
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
+    
     std::cout << "ShadPs4Manager PKG Extraction CLI Tool" << std::endl;
     std::cout << "=======================================" << std::endl;
+    std::cout.flush();
     
     // Handle help flags
     if (argc < 2 || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {

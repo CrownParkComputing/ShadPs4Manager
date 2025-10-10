@@ -20,19 +20,28 @@ public:
     // ShadPS4 executable settings
     QString getShadPS4Path() const;
     void setShadPS4Path(const QString& path);
+    bool getUseSystemShadPS4() const;
+    void setUseSystemShadPS4(bool useSystem);
+
+    // DLC folder settings
+    QString getDlcFolderPath() const;
+    void setDlcFolderPath(const QString& path);
 
     // Default paths
     QString getDefaultGameLibraryPath() const;
     QString getDefaultDownloadsPath() const;
     QString getDefaultShadPS4Path() const;
+    QString getDefaultDlcFolderPath() const;
 
     // Validation
     bool isGameLibraryPathValid() const;
     bool isDownloadsPathValid() const;
+    bool isDlcFolderPathValid() const;
 
     // Directory creation
     bool createGameLibraryDirectory();
     bool createDownloadsDirectory();
+    bool createDlcFolderDirectory();
 
     // IGDB API credentials (now handled through encrypted storage)
     QString getIgdbClientId() const;
@@ -50,6 +59,8 @@ private:
     QSettings m_settings;
     QString m_gameLibraryPath;
     QString m_downloadsPath;
+    QString m_dlcFolderPath;
+    bool m_useSystemShadPS4;
     // IGDB credentials removed - now handled by CredentialManager
 
     void loadSettings();

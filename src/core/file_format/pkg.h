@@ -155,6 +155,36 @@ public:
     u32 GetNumberOfFiles() {
         return fsTable.size();
     }
+    
+    // Get file information for progress display
+    std::string GetFileName(int index) const {
+        if (index < 0 || index >= static_cast<int>(fsTable.size())) {
+            return "Unknown";
+        }
+        return fsTable[index].name;
+    }
+    
+    s64 GetFileSize(int index) const {
+        if (index < 0 || index >= static_cast<int>(fsTable.size())) {
+            return 0;
+        }
+        int inode_number = fsTable[index].inode;
+        if (inode_number < 0 || inode_number >= static_cast<int>(iNodeBuf.size())) {
+            return 0;
+        }
+        return iNodeBuf[inode_number].Size;
+    }
+    
+    s64 GetFileCompressedSize(int index) const {
+        if (index < 0 || index >= static_cast<int>(fsTable.size())) {
+            return 0;
+        }
+        int inode_number = fsTable[index].inode;
+        if (inode_number < 0 || inode_number >= static_cast<int>(iNodeBuf.size())) {
+            return 0;
+        }
+        return iNodeBuf[inode_number].SizeCompressed;
+    }
 
     u64 GetPkgSize() {
         return pkgSize;

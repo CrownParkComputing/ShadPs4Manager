@@ -4,6 +4,7 @@
 #include "pkg_tool/lib.h"
 #include <QHeaderView>
 #include <QRegularExpression>
+#include <QDateTime>
 #include <QDebug>
 #include <QProcess>
 #include <QProgressDialog>
@@ -35,18 +36,46 @@ void DownloadsFolder::setupUI() {
     headerLayout->addWidget(installAllButton);
     mainLayout->addLayout(headerLayout);
 
+    // Installation Folder Structure Info Panel
+    auto* infoGroup = new QGroupBox("📁 Installation Folder Structure");
+    infoGroup->setObjectName("folderStructureInfo");
+    auto* infoLayout = new QVBoxLayout(infoGroup);
+    
+    Settings& settings = Settings::instance();
+    QString gameLibraryPath = settings.getGameLibraryPath();
+    QString dlcPath = settings.getDlcFolderPath();
+    
+    auto* infoLabel = new QLabel(
+        QString("<div style='font-family: monospace; font-size: 11px;'>"
+                "<b style='color: #4a9eff;'>Game Library:</b> %1<br>"
+                "<b style='color: #d9534f;'>DLC Folder:</b> %2<br><br>"
+                "<span style='color: #5cb85c;'>📦 Base Game:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>%1/<b>CUSAXXXXX</b>/</code><br>"
+                "<span style='color: #f0ad4e;'>🔄 Updates:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>%1/<b>CUSAXXXXX-UPDATE</b>/</code><br>"
+                "<span style='color: #d9534f;'>🎮 DLC:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>%2/<b>CUSAXXXXX</b>/DLC_Name/</code><br><br>"
+                "<i style='color: #888;'>PKG files will be automatically organized by Title ID</i>"
+                "</div>").arg(gameLibraryPath, dlcPath)
+    );
+    infoLabel->setWordWrap(true);
+    infoLabel->setTextFormat(Qt::RichText);
+    infoLayout->addWidget(infoLabel);
+    mainLayout->addWidget(infoGroup);
+
     // Game tree (grouped by game with proper ordering)
     gameTreeWidget = new QTreeWidget();
-    gameTreeWidget->setHeaderLabels({"Game / Package", "Type", "Version", "Size", "Actions"});
+    gameTreeWidget->setHeaderLabels({"Game / Package", "Content", "Version", "Size", "Actions"});
     gameTreeWidget->setContextMenuPolicy(Qt::NoContextMenu);
     gameTreeWidget->setAlternatingRowColors(true);
     
-    // Set column widths to show full PKG names
+    // Set uniform row height for better button visibility
+    gameTreeWidget->setUniformRowHeights(false); // Allow variable heights
+    gameTreeWidget->setIndentation(20); // Reduce indentation to save space
+    
+    // Set column widths to show full PKG names and larger buttons
     gameTreeWidget->setColumnWidth(0, 350);  // Game/Package name
-    gameTreeWidget->setColumnWidth(1, 90);   // Type
-    gameTreeWidget->setColumnWidth(2, 70);   // Version
+    gameTreeWidget->setColumnWidth(1, 120);  // Content - wider for "Base + Updates + DLC"
+    gameTreeWidget->setColumnWidth(2, 90);   // Version
     gameTreeWidget->setColumnWidth(3, 90);   // Size
-    gameTreeWidget->setColumnWidth(4, 150);  // Actions - room for 3 small buttons
+    gameTreeWidget->setColumnWidth(4, 130);  // Actions - wide enough for install button
     
     // Enable word wrapping and resize modes
     gameTreeWidget->header()->setStretchLastSection(false);
@@ -83,6 +112,24 @@ void DownloadsFolder::applyStyles() {
             padding: 5px;
         }
 
+        QGroupBox#folderStructureInfo {
+            background-color: #1e1e1e;
+            border: 2px solid #4a9eff;
+            border-radius: 6px;
+            margin-top: 10px;
+            padding-top: 15px;
+            font-weight: bold;
+            color: #4a9eff;
+        }
+
+        QGroupBox#folderStructureInfo::title {
+            subcontrol-origin: margin;
+            subcontrol-position: top left;
+            padding: 5px 10px;
+            background-color: #2b2b2b;
+            border-radius: 3px;
+        }
+
         QTreeWidget {
             background-color: #1e1e1e;
             border: 1px solid #555555;
@@ -93,11 +140,12 @@ void DownloadsFolder::applyStyles() {
         }
 
         QTreeWidget::item {
-            padding: 8px;
+            padding: 12px 8px;
             border-bottom: 1px solid #444444;
             background-color: #353535;
-            margin: 2px;
+            margin: 3px 2px;
             border-radius: 3px;
+            min-height: 40px;
         }
 
         QTreeWidget::item:selected {
@@ -150,7 +198,7 @@ void DownloadsFolder::applyStyles() {
         }
         
         /* Action buttons - matching game card style */
-        #installFullButton, #pkgInstallButton, #pkgExtractButton, #pkgDeleteButton {
+        #pkgExtractButton, #pkgDeleteButton {
             background-color: rgba(255, 255, 255, 0.1);
             border: 1px solid rgba(255, 255, 255, 0.2);
             border-radius: 4px;
@@ -162,18 +210,19 @@ void DownloadsFolder::applyStyles() {
         
         #installFullButton {
             background-color: #4CAF50;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            border: 2px solid #388E3C;
+            border-radius: 6px;
+            padding: 6px 12px;
         }
         
         #installFullButton:hover {
             background-color: #45a049;
-        }
-        
-        #pkgInstallButton {
-            background-color: #2196F3;
-        }
-        
-        #pkgInstallButton:hover {
-            background-color: #0b7dda;
+            color: white;
+            border-color: #2E7D32;
+            font-size: 15px;
         }
         
         #pkgExtractButton {
@@ -201,6 +250,21 @@ void DownloadsFolder::setDownloadsPath(const QString& path) {
 }
 
 void DownloadsFolder::loadPkgs() {
+    // Debounce: avoid re-scanning too frequently (within 2 seconds) unless forced by empty view
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (scanInProgress) {
+        qDebug() << "Scan already in progress - ignoring request";
+        return;
+    }
+    if (lastScanMS != 0 && (now - lastScanMS) < 2000 && !downloads.isEmpty()) {
+        qDebug() << "Debounced scan (" << (now - lastScanMS) << "ms since last)";
+        statusLabel->setText(statusLabel->text() + "  |  (debounced)");
+        return;
+    }
+
+    scanInProgress = true;
+    scanTimer.restart();
+
     clearPkgs();
 
     if (downloadsPath.isEmpty()) {
@@ -214,22 +278,52 @@ void DownloadsFolder::loadPkgs() {
         return;
     }
 
-    // Look for PKG files and archives recursively
+    // Look for PKG files and archives recursively with progress
     QStringList pkgFiles;
     QStringList archiveFiles;
-    
-    QDirIterator pkgIterator(downloadsPath, QStringList{"*.pkg"}, QDir::Files, QDirIterator::Subdirectories);
-    while (pkgIterator.hasNext()) {
-        pkgFiles.append(pkgIterator.next());
+
+    // Pre-pass: collect file paths fast to know total count for progress UI
+    QStringList candidates;
+    {
+        QDirIterator preIt(downloadsPath, QDir::Files, QDirIterator::Subdirectories);
+        while (preIt.hasNext()) {
+            candidates.append(preIt.next());
+        }
     }
-    
-    QDirIterator archiveIterator(downloadsPath, QStringList{"*.rar", "*.zip", "*.7z"}, QDir::Files, QDirIterator::Subdirectories);
-    while (archiveIterator.hasNext()) {
-        archiveFiles.append(archiveIterator.next());
+
+    int totalCandidates = candidates.size();
+    QProgressDialog progressDlg("Scanning downloads...", QString(), 0, totalCandidates, this);
+    progressDlg.setWindowModality(Qt::WindowModal);
+    progressDlg.setMinimumDuration(0);
+    progressDlg.setValue(0);
+    progressDlg.setAutoClose(true);
+    progressDlg.show();
+
+    int processed = 0;
+    for (const QString& path : candidates) {
+        QFileInfo fi(path);
+        const QString suffix = fi.suffix().toLower();
+        if (fi.isFile()) {
+            if (suffix == "pkg") {
+                pkgFiles.append(path);
+            } else if (suffix == "rar" || suffix == "zip" || suffix == "7z") {
+                archiveFiles.append(path);
+            }
+        }
+        if ((processed % 50) == 0) { // update every 50 files to reduce overhead
+            progressDlg.setValue(processed);
+            progressDlg.setLabelText(QString("Scanning downloads... %1 / %2")
+                                      .arg(processed).arg(totalCandidates));
+            QApplication::processEvents();
+        }
+        ++processed;
     }
+    progressDlg.setValue(totalCandidates);
 
     if (pkgFiles.isEmpty() && archiveFiles.isEmpty()) {
         statusLabel->setText(QString("No PKG or archive files found in: %1").arg(downloadsPath));
+        scanInProgress = false;
+        lastScanMS = now;
         return;
     }
 
@@ -240,7 +334,8 @@ void DownloadsFolder::loadPkgs() {
     int validPkgCount = 0;
     int skippedPkgCount = 0;
 
-    // Parse all PKG files
+    // Parse all PKG files with incremental status updates
+    int index = 0;
     for (const QString& pkgFile : pkgFiles) {
         // pkgFile is already a full path from QDirIterator
         QString pkgPath = pkgFile;
@@ -262,6 +357,13 @@ void DownloadsFolder::loadPkgs() {
         DownloadInfo pkgInfo = parsePkgInfo(pkgPath);
         downloads.append(pkgInfo);
         validPkgCount++;
+
+        if ((index % 25) == 0) {
+            statusLabel->setText(QString("Parsing PKGs... %1 / %2 (valid: %3, skipped: %4)")
+                                  .arg(index).arg(pkgFiles.size()).arg(validPkgCount).arg(skippedPkgCount));
+            QApplication::processEvents();
+        }
+        ++index;
     }
     
     // Add archive files as separate entries
@@ -296,7 +398,12 @@ void DownloadsFolder::loadPkgs() {
         statusText += QString(", %1 archives").arg(archiveFiles.size());
     }
     statusText += " (searched recursively)";
+    qint64 elapsed = scanTimer.isValid() ? scanTimer.elapsed() : 0;
+    statusText += QString("  |  %1 ms").arg(elapsed);
     statusLabel->setText(statusText);
+
+    lastScanMS = now;
+    scanInProgress = false;
 }
 
 void DownloadsFolder::clearPkgs() {
@@ -346,6 +453,8 @@ DownloadInfo DownloadsFolder::parsePkgInfo(const QString& pkgPath) {
     // First check for DLC patterns (most specific)
     if (lowerBaseName.contains("dlc") || lowerBaseName.contains("addon") || 
         lowerBaseName.contains("-ac") || lowerBaseName.contains("_ac") ||
+        // Only consider _fxd as DLC if it explicitly contains "DLC" in the name
+        (lowerBaseName.contains("_fxd") && lowerBaseName.contains("dlc")) ||
         QRegularExpression("dlc\\d+", QRegularExpression::CaseInsensitiveOption).match(originalBaseName).hasMatch()) {
         info.contentId = info.titleId + "-DLC01";
         info.pkgType = PkgType::DLC;
@@ -355,6 +464,9 @@ DownloadInfo DownloadsFolder::parsePkgInfo(const QString& pkgPath) {
     // Then check for update/patch patterns (be more specific about updates)
     else if (originalBaseName.contains("PATCH", Qt::CaseInsensitive) ||
              originalBaseName.contains("UPDATE", Qt::CaseInsensitive) ||
+             lowerBaseName.contains("_update") ||
+             lowerBaseName.contains("-update") ||
+             lowerBaseName.contains("backport") ||
              // Only consider versions > 1.00 as updates, not v1.00 which is usually base
              QRegularExpression("v([2-9]\\d*\\.\\d+|1\\.[1-9]\\d*|1\\.0[1-9])", QRegularExpression::CaseInsensitiveOption).match(originalBaseName).hasMatch() ||
              // A0101 and higher (A0100 is base, A0101+ are updates)
@@ -423,9 +535,31 @@ void DownloadsFolder::updateGameTree() {
         auto* gameItem = new QTreeWidgetItem(gameTreeWidget);
         if (!gameItem) continue; // Safety check
         
-        gameItem->setText(0, QString("%1 (%2)").arg(group.gameName).arg(group.titleId));
-        gameItem->setText(1, QString("%1 packages").arg(group.packages.size()));
-        gameItem->setText(2, "");
+        // Enhanced game display with name, version info, and content counts
+        QString gameDisplayName = group.gameName;
+        if (gameDisplayName.length() > 30) {
+            gameDisplayName = gameDisplayName.left(27) + "...";
+        }
+        
+        // Find the highest version number among all packages
+        QString latestVersion = "1.0";
+        for (const DownloadInfo& pkg : group.packages) {
+            if (!pkg.version.isEmpty() && pkg.version > latestVersion) {
+                latestVersion = pkg.version;
+            }
+        }
+        
+        // Build content info string with version
+        QStringList contentInfo;
+        if (group.hasBaseGame) contentInfo << "Base";
+        if (group.updateCount > 0) contentInfo << QString("%1 Updates").arg(group.updateCount);
+        if (group.dlcCount > 0) contentInfo << QString("%1 DLC").arg(group.dlcCount);
+        
+        QString contentStr = contentInfo.isEmpty() ? "No Content" : contentInfo.join(" + ");
+        
+        gameItem->setText(0, QString("%1 (%2)").arg(gameDisplayName).arg(group.titleId));
+        gameItem->setText(1, contentStr);
+        gameItem->setText(2, QString("v%1 (%2 pkg)").arg(latestVersion).arg(group.packages.size()));
         
         qint64 totalSize = 0;
         for (const DownloadInfo& pkg : group.packages) {
@@ -442,14 +576,15 @@ void DownloadsFolder::updateGameTree() {
         
         // Add action button for "Install Full Game" for game groups
         auto* gameActionWidget = new QWidget();
+        gameActionWidget->setMinimumWidth(120); // Ensure widget has enough space
         auto* gameActionLayout = new QHBoxLayout(gameActionWidget);
-        gameActionLayout->setContentsMargins(0, 0, 0, 0);
+        gameActionLayout->setContentsMargins(2, 2, 2, 2);
         gameActionLayout->setSpacing(2);
         
-        auto* installFullButton = new QPushButton("⬇", gameActionWidget);
+        auto* installFullButton = new QPushButton("🚀 INSTALL", gameActionWidget);
         installFullButton->setObjectName("installFullButton");
-        installFullButton->setToolTip("Install base game + all DLC in order");
-        installFullButton->setFixedSize(11, 21);
+        installFullButton->setToolTip("Install/Reinstall game (deletes existing if present)");
+        installFullButton->setFixedSize(110, 36); // Make button wide enough for "INSTALL" text
         installFullButton->setCursor(Qt::PointingHandCursor);
         connect(installFullButton, &QPushButton::clicked, [this, group]() {
             installGameGroup(group);
@@ -503,18 +638,8 @@ void DownloadsFolder::updateGameTree() {
                     extractArchiveFile(pkg.path);
                 });
                 actionLayout->addWidget(extractBtn);
-            } else if (!isArchive) {
-                // Install button for PKG files only
-                auto* installBtn = new QPushButton("⬇", actionWidget);
-                installBtn->setObjectName("pkgInstallButton");
-                installBtn->setToolTip("Install this package");
-                installBtn->setFixedSize(11, 21);
-                installBtn->setCursor(Qt::PointingHandCursor);
-                connect(installBtn, &QPushButton::clicked, [this, pkg]() {
-                    installSinglePackage(pkg);
-                });
-                actionLayout->addWidget(installBtn);
             }
+            // Individual PKG install buttons removed - use game-level install only
             
             // Delete button (always shown for all file types)
             auto* deleteBtn = new QPushButton("🗑", actionWidget);
@@ -540,7 +665,7 @@ void DownloadsFolder::updateGameTree() {
             }
         }
         
-        gameItem->setExpanded(true);
+        gameItem->setExpanded(false); // Collapsed by default - let user expand manually
     }
 }
 
@@ -1027,6 +1152,61 @@ QString DownloadsFolder::getProperDirectoryName(const QString& pkgPath) {
     return baseName + "_extracted";
 }
 
+QString DownloadsFolder::getInstallPath(const DownloadInfo& pkg) {
+    Settings& settings = Settings::instance();
+    QString gameLibraryPath = settings.getGameLibraryPath();
+    QString dlcFolderPath = settings.getDlcFolderPath();
+    
+    // Get Title ID (e.g., CUSA30639)
+    QString titleId = pkg.titleId;
+    if (titleId.isEmpty()) {
+        titleId = getProperDirectoryName(pkg.path);
+    }
+    
+    // Folder structure:
+    // - Base Game: GameLibrary/CUSAXXXXX/
+    // - Update: GameLibrary/CUSAXXXXX-UPDATE/
+    // - DLC: DLCPath/CUSAXXXXX/DLCName/
+    
+    if (pkg.pkgType == PkgType::DLC) {
+        // DLC goes into DLCPath/TITLEID/DLCName/
+        QString dlcName;
+        
+        QFileInfo fileInfo(pkg.path);
+        QString baseName = fileInfo.baseName(); // Remove .pkg extension
+        
+        // Remove title ID prefix and common suffixes
+        dlcName = baseName;
+        dlcName.remove(QRegularExpression("^" + titleId + "_", QRegularExpression::CaseInsensitiveOption));
+        dlcName.remove(QRegularExpression("_DLC_FXD$", QRegularExpression::CaseInsensitiveOption));
+        dlcName.remove(QRegularExpression("_DLC$", QRegularExpression::CaseInsensitiveOption));
+        dlcName.remove(QRegularExpression("CAPCOM_ARCADE.*?STADIUM_", QRegularExpression::CaseInsensitiveOption));
+        
+        // Clean up: convert underscores to spaces, then back to underscores for folder name
+        dlcName = dlcName.replace('_', ' ').trimmed().replace(' ', '_');
+        
+        // Limit length
+        if (dlcName.length() > 60) {
+            dlcName = dlcName.left(60);
+        }
+        
+        // If dlcName is empty, use a fallback
+        if (dlcName.isEmpty()) {
+            dlcName = "DLC_" + QString::number(QDateTime::currentMSecsSinceEpoch());
+        }
+        
+        return dlcFolderPath + "/" + titleId + "/" + dlcName;
+    }
+    else if (pkg.pkgType == PkgType::Update) {
+        // Updates go to TITLEID-UPDATE (no version number)
+        return gameLibraryPath + "/" + titleId + "-UPDATE";
+    }
+    else {
+        // Base game goes to TITLEID/
+        return gameLibraryPath + "/" + titleId;
+    }
+}
+
 void DownloadsFolder::installSinglePackage(const DownloadInfo& pkg) {
     Settings& settings = Settings::instance();
     QString gameLibraryPath = settings.getGameLibraryPath();
@@ -1037,7 +1217,7 @@ void DownloadsFolder::installSinglePackage(const DownloadInfo& pkg) {
         return;
     }
     
-    QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkg.path);
+    QString outputDir = getInstallPath(pkg);
     emit extractionRequested(pkg.path, outputDir);
 }
 
@@ -1058,19 +1238,86 @@ void DownloadsFolder::installGameGroup(const GameGroup& group) {
         return;
     }
     
-    // Install in order: Base Game -> Updates -> DLC
-    QMessageBox::StandardButton reply = QMessageBox::question(this,
-        "Install Full Game",
-        QString("Install %1 with %2 packages in order?\\n\\nBase game, updates, and all DLC will be installed.")
-            .arg(group.gameName)
-            .arg(group.packages.size()),
-        QMessageBox::Yes | QMessageBox::No);
+    qDebug() << "Installing game group:" << group.gameName << "with" << group.packages.size() << "packages";
     
-    if (reply == QMessageBox::Yes) {
-        for (const DownloadInfo& pkg : group.packages) {
-            QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkg.path);
-            emit extractionRequested(pkg.path, outputDir);
+    // Check if there are Update PKGs (which are currently crashing)
+    int updateCount = 0;
+    for (const DownloadInfo& pkg : group.packages) {
+        if (pkg.pkgType == PkgType::Update) {
+            updateCount++;
         }
+    }
+    
+    bool skipUpdates = false;
+    if (updateCount > 0) {
+        QMessageBox msgBox(this);
+        msgBox.setIcon(QMessageBox::Warning);
+        msgBox.setWindowTitle("Update PKGs Detected");
+        msgBox.setText(QString("This game group contains %1 Update PKG(s).").arg(updateCount));
+        msgBox.setInformativeText(
+            "⚠️ KNOWN ISSUE: Update PKG extraction currently crashes (Exit Code 11).\n\n"
+            "The crash occurs in the PKG library's PFS parser for Update-type packages. "
+            "This is being investigated.\n\n"
+            "Recommendation: Skip Update PKGs for now. Base game + DLCs will install successfully.\n\n"
+            "What would you like to do?"
+        );
+        
+        QPushButton* skipBtn = msgBox.addButton("Skip Updates (Recommended)", QMessageBox::AcceptRole);
+        QPushButton* tryBtn = msgBox.addButton("Try Anyway (May Crash)", QMessageBox::RejectRole);
+        msgBox.setDefaultButton(skipBtn);
+        
+        msgBox.exec();
+        skipUpdates = (msgBox.clickedButton() == skipBtn);
+        
+        if (skipUpdates) {
+            qDebug() << "User chose to skip Update PKGs";
+        } else {
+            qDebug() << "User chose to attempt Update PKGs anyway";
+        }
+    }
+    
+    // Silently delete existing installations before reinstalling
+    for (const DownloadInfo& pkg : group.packages) {
+        // Skip if it's an Update and user chose to skip
+        if (skipUpdates && pkg.pkgType == PkgType::Update) {
+            qDebug() << "Skipping Update PKG:" << pkg.path;
+            continue;
+        }
+        
+        QString outputDir = getInstallPath(pkg);
+        if (QDir(outputDir).exists()) {
+            qDebug() << "Removing existing installation:" << outputDir;
+            
+            QDir dirToRemove(outputDir);
+            if (!dirToRemove.removeRecursively()) {
+                qWarning() << "Failed to completely remove:" << outputDir;
+                // Continue anyway - extraction may overwrite
+            }
+        }
+    }
+    
+    // Queue all packages with enforced ordering: Base -> Updates -> DLC
+    QList<DownloadInfo> ordered;
+    // Base
+    for (const DownloadInfo& pkg : group.packages) if (pkg.pkgType == PkgType::BaseGame) ordered.append(pkg);
+    // Updates
+    for (const DownloadInfo& pkg : group.packages) if (pkg.pkgType == PkgType::Update && !(skipUpdates && pkg.pkgType == PkgType::Update)) ordered.append(pkg);
+    // DLC
+    for (const DownloadInfo& pkg : group.packages) if (pkg.pkgType == PkgType::DLC) ordered.append(pkg);
+
+    int queuedCount = 0;
+    for (const DownloadInfo& pkg : ordered) {
+        if (skipUpdates && pkg.pkgType == PkgType::Update) continue; // double-check
+        QString outputDir = getInstallPath(pkg);
+        emit extractionRequested(pkg.path, outputDir);
+        queuedCount++;
+    }
+    
+    // Update status
+    if (skipUpdates && updateCount > 0) {
+        statusLabel->setText(QString("Queued %1 packages (skipped %2 updates)...").arg(queuedCount).arg(updateCount));
+    } else {
+        statusLabel->setText(QString("Queued %1 packages for installation...").arg(queuedCount));
     }
 }
 
