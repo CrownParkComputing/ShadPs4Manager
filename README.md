@@ -334,14 +334,33 @@ md5sum file.pkg
 - No time limit
 - Perfect for evaluation
 
-### Full Version
-1. Click PayPal button in Welcome tab
-2. Complete payment
-3. Email System ID to support
-4. Receive unlock code within 24 hours
-5. Enter code → Unlimited installations
+### Full Version Upgrade
 
-**System ID**: Unique hardware identifier shown in Welcome tab
+**Price**: $9.99 USD (one-time payment)
+
+**How to Upgrade:**
+1. **Launch GUI**: Open the Welcome tab in ShadPs4 Manager GUI
+2. **Copy System ID**: Your unique hardware identifier is displayed at the top
+3. **Click PayPal Button**: Opens secure PayPal checkout in your browser
+4. **Complete Payment**: Use any payment method supported by PayPal
+5. **Email System ID**: Send your System ID to `support@crownparkcomputing.com`
+6. **Receive Unlock Code**: Within 24 hours you'll receive your activation code
+7. **Activate**: Enter the unlock code in the GUI to enable unlimited installations
+
+**PayPal Payment Link**: https://www.paypal.com/ncp/payment/2WY8TPHV3KDMS
+
+**System ID**: 
+- Unique hardware identifier generated from your CPU/motherboard
+- Shown in Welcome tab of the GUI
+- Required for license generation
+- Ensures your license works only on your system
+
+**What You Get:**
+- ✅ Unlimited game installations (no 10-item limit)
+- ✅ Lifetime license for your system
+- ✅ All future updates included
+- ✅ Email support
+- ✅ Priority bug fixes
 
 ## Command-Line Reference
 
