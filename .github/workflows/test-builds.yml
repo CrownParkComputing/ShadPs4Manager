@@ -32,19 +32,22 @@ jobs:
         sudo apt install -y \
           cmake \
           build-essential \
-          qt6-base-dev \
-          qt6-tools-dev \
-          qt6-tools-dev-tools \
-          libqt6core6 \
-          libqt6gui6 \
-          libqt6widgets6 \
-          libqt6network6 \
           libgl1-mesa-dev \
           libglu1-mesa-dev \
           libxrandr-dev \
           libxinerama-dev \
           libxcursor-dev \
-          libxi-dev
+          libxi-dev \
+          pkg-config \
+          ninja-build
+          
+    - name: Install Qt6
+      uses: jurplel/install-qt-action@v3
+      with:
+        version: '6.7.0'
+        host: 'linux'
+        target: 'desktop'
+        cache: true
           
     - name: Configure external dependencies
       run: |
