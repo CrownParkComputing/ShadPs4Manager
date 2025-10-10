@@ -16,7 +16,7 @@ A comprehensive toolkit for managing PS4 PKG files designed to work seamlessly w
 - Organizing updates and DLC
 - Preparing games for emulation
 
-## Three Powerful Tools
+## Two Powerful Tools
 
 ### 1. 🖥️ ShadPs4 Manager GUI (3.8 MB)
 **Full-featured graphical application for managing your PS4 game collection**
@@ -39,13 +39,6 @@ shadps4-pkg-extractor game.pkg /output/dir --verbose
 - Perfect for batch processing
 - No GUI dependencies
 - Supports all PKG types
-
-### 3. 🔑 Unlock Code Generator (85 KB)
-**Admin tool for generating license keys** *(Administrators only)*
-
-- Generate unlock codes from System IDs
-- Encrypted customer record keeping
-- Persistent history tracking
 
 ## Quick Start
 

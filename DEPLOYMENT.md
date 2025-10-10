@@ -213,23 +213,23 @@ ls -lh build/bin/
 
 ## 📦 Release Package Contents
 
-### Linux x64 Package
+### Linux x64 Package (Public Release)
 ```
 shadps4-manager-linux-x64-v1.0.1.tar.gz
-├── shadps4-manager-gui           (3.8 MB)
+├── shadps4-manager-gui           (3.6 MB)
 ├── shadps4-pkg-extractor         (3.0 MB)
-├── shadps4-unlock-code-generator (85 KB)
 ├── LICENSE
 ├── README.md
 └── INSTALL.txt
 ```
 
-### Windows x64 Package
+**Note**: unlock-code-generator is NOT included (admin-only tool, kept private)
+
+### Windows x64 Package (Public Release)
 ```
 ShadPs4Manager-1.0.1-windows-x64.zip
 ├── shadps4-manager-gui.exe
 ├── shadps4-pkg-extractor.exe
-├── shadps4-unlock-code-generator.exe
 ├── Qt6Core.dll
 ├── Qt6Gui.dll
 ├── Qt6Widgets.dll
@@ -237,6 +237,8 @@ ShadPs4Manager-1.0.1-windows-x64.zip
 ├── LICENSE
 └── README.md
 ```
+
+**Note**: unlock-code-generator is NOT included (admin-only tool, kept private)
 
 ---
 

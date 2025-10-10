@@ -31,7 +31,7 @@ make -j$(nproc)
 echo "[4/5] Stripping binaries..."
 strip bin/shadps4-manager-gui
 strip bin/shadps4-pkg-extractor
-strip bin/shadps4-unlock-code-generator
+# Note: unlock-code-generator is admin-only, not included in public releases
 
 echo "[5/5] Creating release packages..."
 cd ..
@@ -41,7 +41,7 @@ echo "  Creating Linux x64 package..."
 mkdir -p "$RELEASE_DIR/linux-x64"
 cp "$BUILD_DIR/bin/shadps4-manager-gui" "$RELEASE_DIR/linux-x64/"
 cp "$BUILD_DIR/bin/shadps4-pkg-extractor" "$RELEASE_DIR/linux-x64/"
-cp "$BUILD_DIR/bin/shadps4-unlock-code-generator" "$RELEASE_DIR/linux-x64/"
+# Note: unlock-code-generator excluded - admin tool only
 cp LICENSE "$RELEASE_DIR/linux-x64/"
 cp README.md "$RELEASE_DIR/linux-x64/"
 
@@ -52,13 +52,12 @@ ShadPs4Manager Installation
 1. Make executables runnable:
    chmod +x shadps4-manager-gui
    chmod +x shadps4-pkg-extractor
-   chmod +x shadps4-unlock-code-generator
 
 2. Run the GUI:
    ./shadps4-manager-gui
 
 3. System-wide installation (optional):
-   sudo cp shadps4-* /usr/local/bin/
+   sudo cp shadps4-manager-gui shadps4-pkg-extractor /usr/local/bin/
 
 For detailed instructions, see README.md
 EOF

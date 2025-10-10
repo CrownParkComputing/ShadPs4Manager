@@ -200,17 +200,17 @@ Thank you!
 ```
 ├── shadps4-manager-gui (3.6 MB)
 ├── shadps4-pkg-extractor (3.0 MB)
-├── shadps4-unlock-code-generator (85 KB)
 ├── LICENSE
 ├── README.md
 └── INSTALL.txt
 ```
 
+**Note**: The unlock-code-generator is NOT included in public releases (admin tool only).
+
 ### Windows x64 (`ShadPs4Manager-1.0.1-windows-x64.zip`)
 ```
 ├── shadps4-manager-gui.exe
 ├── shadps4-pkg-extractor.exe
-├── shadps4-unlock-code-generator.exe
 ├── Qt6Core.dll
 ├── Qt6Gui.dll
 ├── Qt6Widgets.dll
@@ -218,6 +218,8 @@ Thank you!
 ├── LICENSE
 └── README.md
 ```
+
+**Note**: The unlock-code-generator is NOT included in public releases (admin tool only).
 
 ---
 
@@ -276,7 +278,7 @@ Thank you!
 - No automatic license delivery
 - No license transfer between systems
 - No refund mechanism (PayPal only)
-- Linux-only unlock generator tool
+- Admin-only unlock generator tool (not distributed publicly)
 - Manual support email processing
 
 ---
