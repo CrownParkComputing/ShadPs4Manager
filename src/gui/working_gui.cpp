@@ -61,6 +61,108 @@
 #include "game_library.h"
 #include "downloads_folder.h"
 
+// Custom animated title widget with dancing letters
+class AnimatedTitleWidget : public QWidget {
+    Q_OBJECT
+private:
+    QString titleText = "ShadPs4 Manager";
+    int animationFrame = 0;
+    bool isAnimating = false;
+    QTimer* animationTimer = nullptr;
+    
+public:
+    AnimatedTitleWidget(QWidget* parent = nullptr) : QWidget(parent) {
+        setMinimumHeight(80);
+        setMaximumHeight(80);
+        
+        animationTimer = new QTimer(this);
+        connect(animationTimer, &QTimer::timeout, this, [this]() {
+            animationFrame++;
+            update(); // Trigger paintEvent
+        });
+        animationTimer->start(30); // 30ms = ~33 FPS for smooth animation
+    }
+    
+    void setAnimating(bool animate) {
+        isAnimating = animate;
+        update();
+    }
+    
+protected:
+    void paintEvent(QPaintEvent* event) override {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setRenderHint(QPainter::TextAntialiasing);
+        
+        QFont font = painter.font();
+        font.setPointSize(24);
+        font.setBold(true);
+        painter.setFont(font);
+        
+        QFontMetrics fm(font);
+        int totalWidth = fm.horizontalAdvance(titleText);
+        int startX = (width() - totalWidth) / 2;
+        int baseY = height() / 2 + fm.height() / 4;
+        
+        int currentX = startX;
+        
+        for (int i = 0; i < titleText.length(); i++) {
+            QChar letter = titleText[i];
+            QString letterStr = QString(letter);
+            int letterWidth = fm.horizontalAdvance(letterStr);
+            
+            painter.save();
+            
+            if (isAnimating) {
+                // Calculate animation offsets for each letter
+                float time = animationFrame * 0.05f;
+                float letterPhase = i * 0.3f; // Phase offset for wave effect
+                
+                // Vertical dancing motion (sine wave)
+                float verticalOffset = sin(time + letterPhase) * 15.0f;
+                
+                // Horizontal wave motion
+                float horizontalOffset = cos(time * 0.7f + letterPhase) * 5.0f;
+                
+                // Rotation
+                float rotation = sin(time * 1.2f + letterPhase * 0.5f) * 10.0f;
+                
+                // Scale pulsing
+                float scale = 1.0f + sin(time * 1.5f + letterPhase) * 0.15f;
+                
+                // Color cycling through rainbow
+                int hue = (int)(time * 50 + i * 15) % 360;
+                QColor color = QColor::fromHsv(hue, 255, 255);
+                
+                // Apply transformations
+                int centerX = currentX + letterWidth / 2;
+                int centerY = baseY;
+                
+                painter.translate(centerX + horizontalOffset, centerY + verticalOffset);
+                painter.rotate(rotation);
+                painter.scale(scale, scale);
+                painter.translate(-letterWidth / 2, 0);
+                
+                painter.setPen(color);
+                
+                // Add glow effect
+                QPen glowPen(color);
+                glowPen.setWidth(2);
+                painter.setPen(glowPen);
+            } else {
+                // Static display
+                painter.translate(currentX, baseY);
+                painter.setPen(QColor(106, 90, 205)); // SlateBlue
+            }
+            
+            painter.drawText(0, 0, letterStr);
+            painter.restore();
+            
+            currentX += letterWidth;
+        }
+    }
+};
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -86,10 +188,8 @@ private:
     QProcess* shadps4Process = nullptr;  // Track running emulator process
     QStringList musicPlaylist;
     int currentTrackIndex = 0;
-    QLabel* titleLabel = nullptr;
+    AnimatedTitleWidget* titleWidget = nullptr;
     QLabel* trackLabel = nullptr;
-    QTimer* animationTimer = nullptr;
-    int animationFrame = 0;
 
 public:
     MainWindow(QWidget* parent = nullptr) : QMainWindow(parent) {
@@ -150,6 +250,13 @@ public:
                 }
             });
             
+            // Connect playback state changes to control title animation
+            connect(musicPlayer, &QMediaPlayer::playbackStateChanged, this, [this](QMediaPlayer::PlaybackState state) {
+                if (titleWidget) {
+                    titleWidget->setAnimating(state == QMediaPlayer::PlayingState);
+                }
+            });
+            
             playCurrentTrack();
         }
     }
@@ -203,20 +310,37 @@ public:
     
     QAudioDevice findHdmiAudioDevice() {
         QMediaDevices mediaDevices;
-        const QList<QAudioDevice> audioDevices = mediaDevices.audioOutputs();
         
-        // Try to find HDMI device
+        qDebug() << "=== Audio Device Selection ===";
+        qDebug() << "Available audio output devices:";
+        const QList<QAudioDevice> audioDevices = mediaDevices.audioOutputs();
+        for (const QAudioDevice &device : audioDevices) {
+            qDebug() << "  -" << device.description();
+        }
+        
+        // Check if default device is already HDMI/digital
+        QAudioDevice defaultDevice = mediaDevices.defaultAudioOutput();
+        QString defaultName = defaultDevice.description().toLower();
+        qDebug() << "System default device:" << defaultDevice.description();
+        
+        if (defaultName.contains("hdmi") || defaultName.contains("digital")) {
+            qDebug() << "✓ Default device is already HDMI/digital, using it!";
+            return defaultDevice;
+        }
+        
+        // Default isn't HDMI, search for HDMI device explicitly
+        qDebug() << "Default device is not HDMI, searching for HDMI device...";
         for (const QAudioDevice &device : audioDevices) {
             QString deviceName = device.description().toLower();
             if (deviceName.contains("hdmi") || deviceName.contains("digital")) {
-                qDebug() << "Found HDMI audio device:" << device.description();
+                qDebug() << "✓ Found HDMI audio device:" << device.description();
                 return device;
             }
         }
         
         // If no HDMI found, return default device
-        qDebug() << "No HDMI device found, using default:" << mediaDevices.defaultAudioOutput().description();
-        return mediaDevices.defaultAudioOutput();
+        qDebug() << "⚠ No HDMI device found, using system default:" << defaultDevice.description();
+        return defaultDevice;
     }
 
 public slots:
@@ -612,27 +736,9 @@ void MainWindow::setupUI() {
     setCentralWidget(centralWidget);
     QVBoxLayout* mainLayout = new QVBoxLayout(centralWidget);
 
-    // Animated title header
-    titleLabel = new QLabel("ShadPs4 Manager", this);
-    QFont titleFont = titleLabel->font();
-    titleFont.setPointSize(24);
-    titleFont.setBold(true);
-    titleLabel->setFont(titleFont);
-    titleLabel->setAlignment(Qt::AlignCenter);
-    titleLabel->setStyleSheet("QLabel { color: #6A5ACD; padding: 10px; }");
-    mainLayout->addWidget(titleLabel);
-    
-    // Setup animation timer for title
-    animationTimer = new QTimer(this);
-    connect(animationTimer, &QTimer::timeout, this, [this]() {
-        if (musicPlayer && musicPlayer->playbackState() == QMediaPlayer::PlayingState) {
-            animationFrame = (animationFrame + 1) % 360;
-            int hue = animationFrame;
-            QColor color = QColor::fromHsv(hue, 200, 200);
-            titleLabel->setStyleSheet(QString("QLabel { color: %1; padding: 10px; }").arg(color.name()));
-        }
-    });
-    animationTimer->start(50); // Update every 50ms
+    // Animated title header with dancing letters
+    titleWidget = new AnimatedTitleWidget(this);
+    mainLayout->addWidget(titleWidget);
 
     // Bottom controls layout
     QHBoxLayout* bottomLayout = new QHBoxLayout();

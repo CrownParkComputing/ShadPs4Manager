@@ -88,6 +88,7 @@ private:
     QString getProperDirectoryName(const QString& pkgPath);
     QString getInstallPath(const DownloadInfo& pkg);
     QString formatBytes(uint64_t bytes);
+    QString scanInstalledGames(const QString& gameLibraryPath, const QString& dlcPath);
 
     // Debounce & progress tracking
     qint64 lastScanMS = 0;          // Epoch ms of last completed scan

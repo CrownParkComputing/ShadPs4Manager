@@ -28,8 +28,8 @@ void GameCard::setupUI() {
 
     // Main vertical layout - title at top with more space, cover and icons at bottom
     m_mainLayout = new QVBoxLayout(m_mainContainer);
-    m_mainLayout->setSpacing(8);
-    m_mainLayout->setContentsMargins(8, 8, 8, 8);
+    m_mainLayout->setSpacing(4); // Reduced from 8 for tighter layout
+    m_mainLayout->setContentsMargins(8, 6, 8, 6); // Reduced top/bottom margins from 8 to 6
 
     // Play buttons removed - cover image will be clickable for launch
 
@@ -37,7 +37,7 @@ void GameCard::setupUI() {
     m_titleLabel = new QLabel(m_mainContainer);
     m_titleLabel->setObjectName("titleLabel");
     m_titleLabel->setWordWrap(true);
-    m_titleLabel->setMinimumHeight(60);  // Increased from 40
+    m_titleLabel->setMinimumHeight(30);  // Reduced from 60 to 30
     m_titleLabel->setAlignment(Qt::AlignTop | Qt::AlignHCenter);
 
     // Status info panel (below title)
@@ -119,7 +119,7 @@ void GameCard::setupUI() {
     mainLayout->setContentsMargins(0, 0, 0, 0);
     mainLayout->setSpacing(0);
 
-    setFixedSize(180, 320); // Adjusted size for vertical layout
+    setFixedSize(180, 280); // Reduced height from 320 to 280 for more compact layout
 }
 
 void GameCard::setupStyle() {

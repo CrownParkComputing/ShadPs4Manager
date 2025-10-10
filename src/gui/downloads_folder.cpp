@@ -45,15 +45,17 @@ void DownloadsFolder::setupUI() {
     QString gameLibraryPath = settings.getGameLibraryPath();
     QString dlcPath = settings.getDlcFolderPath();
     
+    // Scan for actual installed games
+    QString installedGamesInfo = scanInstalledGames(gameLibraryPath, dlcPath);
+    
     auto* infoLabel = new QLabel(
         QString("<div style='font-family: monospace; font-size: 11px;'>"
                 "<b style='color: #4a9eff;'>Game Library:</b> %1<br>"
                 "<b style='color: #d9534f;'>DLC Folder:</b> %2<br><br>"
-                "<span style='color: #5cb85c;'>📦 Base Game:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>%1/<b>CUSAXXXXX</b>/</code><br>"
-                "<span style='color: #f0ad4e;'>🔄 Updates:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>%1/<b>CUSAXXXXX-UPDATE</b>/</code><br>"
-                "<span style='color: #d9534f;'>🎮 DLC:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>%2/<b>CUSAXXXXX</b>/DLC_Name/</code><br><br>"
+                "%3"
+                "<br><br>"
                 "<i style='color: #888;'>PKG files will be automatically organized by Title ID</i>"
-                "</div>").arg(gameLibraryPath, dlcPath)
+                "</div>").arg(gameLibraryPath, dlcPath, installedGamesInfo)
     );
     infoLabel->setWordWrap(true);
     infoLabel->setTextFormat(Qt::RichText);
@@ -1464,4 +1466,90 @@ void DownloadsFolder::deletePackage(const DownloadInfo& pkg, QTreeWidgetItem* it
                 .arg(file.errorString()));
         }
     }
+}
+
+QString DownloadsFolder::scanInstalledGames(const QString& gameLibraryPath, const QString& dlcPath) {
+    QString result;
+    QStringList baseGames;
+    QStringList updates;
+    QStringList dlcFolders;
+    
+    // Scan game library for base games and updates
+    QDir gameDir(gameLibraryPath);
+    if (gameDir.exists()) {
+        QStringList entries = gameDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QString& entry : entries) {
+            if (entry.startsWith("CUSA") || entry.startsWith("PPSA")) {
+                if (entry.contains("-UPDATE", Qt::CaseInsensitive)) {
+                    updates.append(entry);
+                } else {
+                    baseGames.append(entry);
+                }
+            }
+        }
+    }
+    
+    // Scan DLC folder
+    QDir dlcDir(dlcPath);
+    if (dlcDir.exists()) {
+        QStringList titleIdFolders = dlcDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QString& titleId : titleIdFolders) {
+            if (titleId.startsWith("CUSA") || titleId.startsWith("PPSA")) {
+                QDir titleDir(dlcDir.absoluteFilePath(titleId));
+                QStringList dlcSubdirs = titleDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+                for (const QString& dlcName : dlcSubdirs) {
+                    dlcFolders.append(QString("%1/%2").arg(titleId, dlcName));
+                }
+            }
+        }
+    }
+    
+    // Build the HTML output
+    if (!baseGames.isEmpty()) {
+        result += "<span style='color: #5cb85c;'><b>📦 Installed Base Games:</b></span><br>";
+        int count = 0;
+        for (const QString& game : baseGames) {
+            result += QString("&nbsp;&nbsp;&nbsp;<code>%1/</code><br>").arg(game);
+            if (++count >= 5 && baseGames.size() > 5) {
+                result += QString("&nbsp;&nbsp;&nbsp;<i style='color: #888;'>... and %1 more</i><br>").arg(baseGames.size() - 5);
+                break;
+            }
+        }
+        result += "<br>";
+    }
+    
+    if (!updates.isEmpty()) {
+        result += "<span style='color: #f0ad4e;'><b>🔄 Installed Updates:</b></span><br>";
+        int count = 0;
+        for (const QString& update : updates) {
+            result += QString("&nbsp;&nbsp;&nbsp;<code>%1/</code><br>").arg(update);
+            if (++count >= 5 && updates.size() > 5) {
+                result += QString("&nbsp;&nbsp;&nbsp;<i style='color: #888;'>... and %1 more</i><br>").arg(updates.size() - 5);
+                break;
+            }
+        }
+        result += "<br>";
+    }
+    
+    if (!dlcFolders.isEmpty()) {
+        result += "<span style='color: #d9534f;'><b>🎮 Installed DLC:</b></span><br>";
+        int count = 0;
+        for (const QString& dlc : dlcFolders) {
+            result += QString("&nbsp;&nbsp;&nbsp;<code>%1/</code><br>").arg(dlc);
+            if (++count >= 5 && dlcFolders.size() > 5) {
+                result += QString("&nbsp;&nbsp;&nbsp;<i style='color: #888;'>... and %1 more</i><br>").arg(dlcFolders.size() - 5);
+                break;
+            }
+        }
+        result += "<br>";
+    }
+    
+    if (baseGames.isEmpty() && updates.isEmpty() && dlcFolders.isEmpty()) {
+        result = "<span style='color: #888;'><i>No games installed yet. Install PKG files from the tree below.</i></span><br><br>"
+                 "<span style='color: #5cb85c;'>📦 Base Game Example:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>CUSAXXXXX/</code><br>"
+                 "<span style='color: #f0ad4e;'>🔄 Update Example:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>CUSAXXXXX-UPDATE/</code><br>"
+                 "<span style='color: #d9534f;'>🎮 DLC Example:</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<code>CUSAXXXXX/DLC_Name/</code>";
+    }
+    
+    return result;
 }
