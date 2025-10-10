@@ -222,3 +222,36 @@ void Settings::setIgdbClientSecret(const QString& clientSecret) {
 bool Settings::hasValidIgdbCredentials() const {
     return CredentialManager::instance().hasValidIgdbCredentials();
 }
+
+// License management
+bool Settings::isRegistered() const {
+    return m_settings.value("license/is_registered", false).toBool();
+}
+
+QString Settings::getLicenseKey() const {
+    return m_settings.value("license/key", "").toString();
+}
+
+void Settings::setLicenseKey(const QString& key) {
+    m_settings.setValue("license/key", key);
+    m_settings.sync();
+}
+
+QString Settings::getSystemId() const {
+    return m_settings.value("license/system_id", "").toString();
+}
+
+void Settings::setSystemId(const QString& id) {
+    m_settings.setValue("license/system_id", id);
+    m_settings.sync();
+}
+
+// Generic key-value access
+void Settings::setValue(const QString& key, const QVariant& value) {
+    m_settings.setValue(key, value);
+    m_settings.sync();
+}
+
+QVariant Settings::getValue(const QString& key, const QVariant& defaultValue) const {
+    return m_settings.value(key, defaultValue);
+}

@@ -55,6 +55,17 @@ public:
     void setIgdbClientSecret(const QString& clientSecret);
     bool hasValidIgdbCredentials() const;
 
+    // License management
+    bool isRegistered() const;
+    QString getLicenseKey() const;
+    void setLicenseKey(const QString& key);
+    QString getSystemId() const;
+    void setSystemId(const QString& id);
+    
+    // Generic key-value access
+    void setValue(const QString& key, const QVariant& value);
+    QVariant getValue(const QString& key, const QVariant& defaultValue = QVariant()) const;
+
 private:
     Settings();
     ~Settings() = default;

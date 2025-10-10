@@ -1,6 +1,7 @@
 #include "downloads_folder.h"
 #include "settings.h"
 #include "param_sfo.h"
+#include "installation_folder.h"
 #include "pkg_tool/lib.h"
 #include <QHeaderView>
 #include <QRegularExpression>
@@ -933,6 +934,31 @@ void DownloadsFolder::extractArchive() {
 void DownloadsFolder::installGameInOrder() {
     QTreeWidgetItem* item = gameTreeWidget->currentItem();
     if (!item) return;
+    
+    // Check registration and item limit
+    Settings& settings = Settings::instance();
+    if (!settings.isRegistered()) {
+        // Count installed items
+        InstallationFolder tempInstallFolder;
+        int currentCount = tempInstallFolder.getTotalInstalledCount();
+        
+        // Find the game group to count how many items will be installed
+        QTreeWidgetItem* gameItem = item->parent() ? item->parent() : item;
+        int itemsToInstall = gameItem->childCount();
+        
+        if (currentCount + itemsToInstall > 10) {
+            QMessageBox::warning(this, "Trial Version Limit",
+                QString("⚠️ Trial Version Limitation\n\n"
+                        "You currently have %1 items installed.\n"
+                        "This installation would add %2 more items.\n\n"
+                        "The trial version is limited to 10 total items (base games + updates + DLC).\n\n"
+                        "To unlock unlimited installations, please register your copy of ShadPs4 Manager.\n"
+                        "See the Welcome tab for registration details.")
+                    .arg(currentCount)
+                    .arg(itemsToInstall));
+            return;
+        }
+    }
     
     // Find the game group
     QTreeWidgetItem* gameItem = item->parent() ? item->parent() : item;

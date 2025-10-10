@@ -14,6 +14,9 @@ class InstallationFolder : public QWidget {
 
 public:
     InstallationFolder(QWidget* parent = nullptr);
+    
+    // Get total count of installed items (base + updates + DLC)
+    int getTotalInstalledCount();
 
 public slots:
     void refreshView();

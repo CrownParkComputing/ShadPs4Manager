@@ -46,9 +46,6 @@
 #include <QTextEdit>
 #include <QDebug>
 #include <QQueue>
-#include <QSplashScreen>
-#include <QPixmap>
-#include <QPainter>
 #include <QThread>
 #include <QMediaPlayer>
 #include <QAudioOutput>
@@ -61,6 +58,7 @@
 #include "game_library.h"
 #include "downloads_folder.h"
 #include "installation_folder.h"
+#include "welcome_tab.h"
 
 // Custom animated title widget with dancing letters
 class AnimatedTitleWidget : public QWidget {
@@ -766,6 +764,22 @@ void MainWindow::setupUI() {
     // Tabs
     QTabWidget* tabWidget = new QTabWidget(this);
     mainTabWidget = tabWidget;  // Store reference for tab switching
+    
+    // Check registration status
+    Settings& settings = Settings::instance();
+    bool isRegistered = settings.isRegistered();
+    
+    // Add Welcome tab if not registered
+    if (!isRegistered) {
+        WelcomeTab* welcomeTab = new WelcomeTab();
+        connect(welcomeTab, &WelcomeTab::licenseActivated, this, [this]() {
+            // Restart application
+            qApp->quit();
+            QProcess::startDetached(qApp->applicationFilePath(), qApp->arguments());
+        });
+        tabWidget->addTab(welcomeTab, "⚠️ Welcome - Register");
+    }
+    
     gameLibrary = new GameLibrary();
     tabWidget->addTab(gameLibrary, "Game Library");
     DownloadsFolder* downloadsFolder = new DownloadsFolder();
@@ -901,42 +915,10 @@ int main(int argc, char* argv[]) {
     app.setApplicationVersion("1.0.1");
     app.setOrganizationName("ShadPs4");
 
-    // Create splash screen
-    QPixmap splashPixmap(400, 200);
-    splashPixmap.fill(QColor(40, 40, 50));
-    
-    QPainter painter(&splashPixmap);
-    painter.setPen(Qt::white);
-    
-    // Title
-    QFont titleFont = painter.font();
-    titleFont.setPointSize(20);
-    titleFont.setBold(true);
-    painter.setFont(titleFont);
-    painter.drawText(splashPixmap.rect(), Qt::AlignCenter, "ShadPs4 Manager");
-    
-    // Version
-    QFont versionFont = painter.font();
-    versionFont.setPointSize(10);
-    versionFont.setBold(false);
-    painter.setFont(versionFont);
-    painter.drawText(QRect(0, 120, 400, 30), Qt::AlignCenter, "Version 1.0.1");
-    
-    // Info text
-    painter.drawText(QRect(0, 150, 400, 30), Qt::AlignCenter, "Loading application...");
-    painter.end();
-    
-    QSplashScreen splash(splashPixmap);
-    splash.show();
-    app.processEvents();
-    
     // Verify CLI extractor exists
     QString extractorPath = Settings::instance().getPkgExtractorPath();
-    splash.showMessage("Checking dependencies...", Qt::AlignBottom | Qt::AlignCenter, Qt::white);
-    app.processEvents();
     
     if (!QFile::exists(extractorPath)) {
-        splash.close();
         QMessageBox::critical(nullptr, "Missing Dependency",
             QString("Critical: CLI extraction tool not found!\n\n"
                     "Expected location: %1\n\n"
@@ -945,14 +927,9 @@ int main(int argc, char* argv[]) {
                     "If you haven't built it yet, please rebuild the project completely.").arg(extractorPath));
         // Don't exit - let user configure path in Settings
     }
-    
-    splash.showMessage("Initializing UI...", Qt::AlignBottom | Qt::AlignCenter, Qt::white);
-    app.processEvents();
-    QThread::msleep(300);
 
     MainWindow window;
     window.show();
-    splash.finish(&window);
 
     return app.exec();
 }

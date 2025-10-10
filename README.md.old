@@ -1,0 +1,403 @@
+# ShadPs4Manager
+
+> Professional PS4 Package Management Suite
+
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-lightgrey.svg)]()
+[![Qt](https://img.shields.io/badge/Qt-6.2%2B-green.svg)](https://www.qt.io/)
+
+A comprehensive toolkit for extracting, organizing, and managing PS4 PKG files. Built with Qt6 and modern C++.
+
+## 🎮 Three Powerful Applications
+
+### 1. ShadPs4 Manager GUI (3.8 MB)
+The main application with a complete graphical interface for managing PS4 packages.
+
+**Features:**
+- Visual game library with cover art
+- Batch PKG extraction
+- IGDB metadata integration
+- Update and DLC management
+- Registration system with 10-game trial
+- Real-time extraction progress
+
+[📖 Documentation](docs/manager-gui/README.md) | [🔨 Build Instructions](docs/manager-gui/BUILD.md)
+
+### 2. PKG Extractor CLI (3.0 MB)
+Command-line tool for automated PKG extraction.
+
+**Features:**
+- Fast command-line extraction
+- Scriptable and automatable
+- Verbose output mode
+- No GUI dependencies
+
+[📖 Documentation](docs/pkg-extractor/README.md) | [🔨 Build Instructions](docs/pkg-extractor/BUILD.md)
+
+```bash
+shadps4-pkg-extractor game.pkg /output/dir --verbose
+```
+
+### 3. Unlock Code Generator (85 KB)
+Admin tool for generating license keys (administrators only).
+
+**Features:**
+- Generate unlock codes from System IDs
+- Encrypted customer email storage
+- Generation history tracking
+- Persistent record keeping
+
+[📖 Documentation](docs/unlock-generator/README.md) | [🔨 Build Instructions](docs/unlock-generator/BUILD.md)
+
+## 🚀 Quick Start
+
+### Download
+
+Download the latest release for your platform:
+
+**Latest Release**: [v1.0.1](https://github.com/CrownParkComputing/ShadPs4Manager/releases/latest)
+
+- 🐧 **Linux**: `shadps4-manager-linux-x64-v1.0.1.tar.gz`
+- 🪟 **Windows**: `shadps4-manager-windows-x64-v1.0.1.zip`
+- 🍎 **macOS**: `shadps4-manager-macos-universal-v1.0.1.dmg`
+
+### Installation
+
+**Linux:**
+```bash
+tar -xzf shadps4-manager-linux-x64-v1.0.1.tar.gz
+cd shadps4-manager
+chmod +x shadps4-manager-gui
+./shadps4-manager-gui
+```
+
+**Windows:**
+1. Extract ZIP file
+2. Double-click `shadps4-manager-gui.exe`
+
+**macOS:**
+1. Open DMG file
+2. Drag to Applications folder
+3. Right-click → Open (first time only)
+
+### Build from Source
+
+```bash
+# Clone repository
+git clone https://github.com/CrownParkComputing/ShadPs4Manager.git
+cd ShadPs4Manager
+
+# Initialize submodules
+git submodule update --init --recursive
+
+# Quick build
+./build.sh
+
+# Executables in build/bin/
+ls -lh build/bin/
+```
+
+See [BUILD.md](BUILD.md) for detailed build instructions.
+
+## 📚 Documentation
+
+### User Guides
+- [Quick Start Guide](QUICKSTART.md) - Get started in minutes
+- [Manager GUI Guide](docs/manager-gui/README.md) - Complete feature walkthrough
+- [CLI Extractor Guide](docs/pkg-extractor/README.md) - Command-line usage
+- [Registration System](REGISTRATION_SYSTEM.md) - License and trial information
+
+### Administrator Guides
+- [Admin Guide](ADMIN_GUIDE.md) - Unlock code generation procedures
+- [Unlock Generator](docs/unlock-generator/README.md) - Generator tool documentation
+- [Record Keeping](RECORD_KEEPING.md) - Encrypted storage details
+
+### Developer Documentation
+- [Build Instructions](BUILD.md) - Build all applications
+- [Manager GUI Build](docs/manager-gui/BUILD.md) - GUI-specific build
+- [CLI Build](docs/pkg-extractor/BUILD.md) - CLI-specific build
+- [Generator Build](docs/unlock-generator/BUILD.md) - Admin tool build
+- [Project Structure](PROJECT_STRUCTURE.md) - Codebase organization
+
+## ✨ Key Features
+
+### Game Management
+- Browse game library with cover art from IGDB
+- Organize games, updates, and DLC
+- Track installation status
+- View game metadata and details
+
+### PKG Extraction
+- Extract base games, updates, and DLC
+- Multi-threaded extraction for performance
+- Progress tracking and logging
+- Automatic file organization
+
+### Registration System
+- 10-game trial for new users
+- Hardware-based System ID
+- Secure license activation
+- PayPal payment integration
+
+### IGDB Integration
+- Automatic game metadata fetching
+- Cover art and screenshots
+- Release dates and descriptions
+- Genre and platform information
+
+## 🖥️ System Requirements
+
+### Minimum Requirements
+- **OS**: Linux (Ubuntu 22.04+), Windows 10/11, macOS 11+
+- **CPU**: Dual-core 2.0 GHz
+- **RAM**: 2 GB
+- **Disk**: 100 MB + space for games
+- **Display**: 1280x720
+
+### Recommended Requirements
+- **OS**: Latest stable OS version
+- **CPU**: Quad-core 3.0 GHz
+- **RAM**: 4 GB
+- **Disk**: SSD with ample space
+- **Display**: 1920x1080 or higher
+
+### Dependencies
+
+**Manager GUI:**
+- Qt6 6.2+ (Widgets, Network, Multimedia)
+- Crypto++ 8.9.0
+- zlib
+
+**PKG Extractor CLI:**
+- Crypto++ 8.9.0
+- zlib
+- No Qt required
+
+**Unlock Generator:**
+- Qt6 6.2+ (Widgets only)
+- No Crypto++ or zlib required
+
+## 📦 Project Structure
+
+```
+ShadPs4Manager/
+├── src/
+│   ├── manager-gui/          # Main GUI application
+│   ├── unlock-generator/     # Admin unlock tool
+│   ├── pkg-extractor/        # CLI extraction tool
+│   ├── common/               # Shared utilities
+│   ├── core/                 # Core PKG handling
+│   └── pkg_tool/             # PKG library
+│
+├── docs/                     # Documentation
+│   ├── manager-gui/          # GUI app docs
+│   ├── unlock-generator/     # Admin tool docs
+│   ├── pkg-extractor/        # CLI docs
+│   ├── index.html            # GitHub Pages website
+│   └── assets/               # Website assets
+│
+├── build/                    # Build artifacts (gitignored)
+│   └── bin/                  # Compiled executables
+│
+├── external/                 # External dependencies
+│   ├── cryptopp/             # Crypto++ library
+│   └── zlib/                 # zlib library
+│
+├── scripts/                  # Build and utility scripts
+│   └── clean.sh              # Clean build artifacts
+│
+├── CMakeLists.txt            # Main build configuration
+├── build.sh                  # Quick build script
+├── VERSION                   # Version file
+└── LICENSE                   # GPL-3.0 License
+```
+
+See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for detailed information.
+
+## 🔨 Building
+
+### Quick Build (All Applications)
+
+```bash
+./build.sh
+```
+
+### Build Individual Applications
+
+```bash
+cd build
+
+# Manager GUI only
+make shadps4-manager-gui -j$(nproc)
+
+# CLI extractor only
+make shadps4-pkg-extractor -j$(nproc)
+
+# Unlock generator only
+make shadps4-unlock-code-generator -j$(nproc)
+```
+
+### Clean Build
+
+```bash
+./scripts/clean.sh
+./build.sh
+```
+
+See application-specific build guides for detailed instructions:
+- [Manager GUI Build Guide](docs/manager-gui/BUILD.md)
+- [CLI Extractor Build Guide](docs/pkg-extractor/BUILD.md)
+- [Unlock Generator Build Guide](docs/unlock-generator/BUILD.md)
+
+## 🎯 Usage Examples
+
+### Manager GUI
+
+```bash
+# Launch application
+./build/bin/shadps4-manager-gui
+
+# Configure paths in Settings tab
+# Scan downloads folder for PKG files
+# Install games with one click
+```
+
+### CLI Extractor
+
+```bash
+# Extract a single PKG
+./build/bin/shadps4-pkg-extractor game.pkg /output/dir
+
+# Extract with verbose output
+./build/bin/shadps4-pkg-extractor game.pkg /output/dir --verbose
+
+# Batch extract all PKGs
+for pkg in *.pkg; do
+    ./build/bin/shadps4-pkg-extractor "$pkg" "/output/$(basename "$pkg" .pkg)"
+done
+```
+
+### Unlock Generator (Admins Only)
+
+```bash
+# Launch generator
+./build/bin/shadps4-unlock-code-generator
+
+# 1. Enter customer's System ID
+# 2. Enter customer's email
+# 3. Click "Generate Unlock Code"
+# 4. Copy code and send to customer
+```
+
+## 🔐 Trial and Registration
+
+### Trial Mode
+- Install up to **10 items** (games + updates + DLC)
+- All features fully functional
+- No time limit
+
+### Full Registration
+1. Purchase via PayPal (link in Welcome tab)
+2. Email System ID to support
+3. Receive unlock code within 24 hours
+4. Enter code in License Activation field
+5. Unlimited installations unlocked
+
+See [REGISTRATION_SYSTEM.md](REGISTRATION_SYSTEM.md) for technical details.
+
+## 🌐 Website
+
+Visit our GitHub Pages site for more information:
+
+**https://crownparkcomputing.github.io/ShadPs4Manager/**
+
+Features:
+- Download links for all platforms
+- Feature showcase
+- Documentation links
+- Build instructions
+- Support information
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Guidelines
+- Follow existing code style
+- Test all three applications
+- Update relevant documentation
+- Keep commits focused and descriptive
+
+## 📝 License
+
+This project is licensed under the **GNU General Public License v3.0** (GPL-3.0).
+
+You are free to:
+- Use the software for any purpose
+- Study and modify the source code
+- Distribute copies
+- Distribute modified versions
+
+See [LICENSE](LICENSE) for full details.
+
+## 🐛 Support
+
+### Issues and Bugs
+Report issues on [GitHub Issues](https://github.com/CrownParkComputing/ShadPs4Manager/issues)
+
+### Documentation
+- Check the relevant README in `docs/` for your application
+- Review [QUICKSTART.md](QUICKSTART.md) for basic usage
+- See [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) for codebase info
+
+### Community
+- GitHub Discussions: [Discussions](https://github.com/CrownParkComputing/ShadPs4Manager/discussions)
+- Website: [https://crownparkcomputing.github.io/ShadPs4Manager/](https://crownparkcomputing.github.io/ShadPs4Manager/)
+
+## 📊 Status
+
+- ✅ **Manager GUI**: Stable, fully functional
+- ✅ **PKG Extractor CLI**: Stable, production-ready
+- ✅ **Unlock Generator**: Stable, admin use
+- ✅ **Documentation**: Complete
+- ✅ **Website**: Live on GitHub Pages
+- ✅ **Build System**: CMake, cross-platform
+
+## 🎉 Acknowledgments
+
+- **Qt Framework**: For the excellent GUI toolkit
+- **Crypto++**: For cryptographic functions
+- **IGDB**: For game metadata API
+- **ShadPS4**: For inspiration and reference
+- **Contributors**: Everyone who has contributed to this project
+
+## 📜 Changelog
+
+See [CHANGELOG_NEW_FEATURES.md](CHANGELOG_NEW_FEATURES.md) for recent changes.
+
+**Version 1.0.1** (2025-10-10)
+- Initial release
+- Three applications: GUI, CLI, Generator
+- Registration system with trial
+- IGDB integration
+- Complete documentation
+- GitHub Pages website
+
+---
+
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/CrownParkComputing">Crown Park Computing</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/CrownParkComputing/ShadPs4Manager">GitHub</a> •
+  <a href="https://github.com/CrownParkComputing/ShadPs4Manager/issues">Issues</a> •
+  <a href="https://github.com/CrownParkComputing/ShadPs4Manager/releases">Releases</a> •
+  <a href="https://crownparkcomputing.github.io/ShadPs4Manager/">Website</a>
+</p>

@@ -87,7 +87,7 @@ endif()
 
 # CLI PKG Extractor Tool
 add_executable(shadps4-pkg-extractor
-    src/cli/pkg_extractor.cpp
+    src/pkg-extractor/pkg_extractor.cpp
 )
 
 target_link_libraries(shadps4-pkg-extractor PRIVATE
@@ -150,17 +150,19 @@ if(BUILD_GUI)
         set(CMAKE_AUTORCC ON)
         set(CMAKE_AUTOUIC ON)
         
+        # Main Manager GUI Application
         add_executable(shadps4-manager-gui
-            src/gui/working_gui.cpp
-            src/gui/settings.cpp
-            src/gui/settings_page.cpp
-            src/gui/game_library.cpp
-            src/gui/gamecard.cpp
-            src/gui/downloads_folder.cpp
-            src/gui/installation_folder.cpp
-            src/gui/param_sfo.cpp
-            src/gui/igdbservice.cpp
-            src/gui/credential_manager.cpp
+            src/manager-gui/working_gui.cpp
+            src/manager-gui/settings.cpp
+            src/manager-gui/settings_page.cpp
+            src/manager-gui/game_library.cpp
+            src/manager-gui/gamecard.cpp
+            src/manager-gui/downloads_folder.cpp
+            src/manager-gui/installation_folder.cpp
+            src/manager-gui/param_sfo.cpp
+            src/manager-gui/igdbservice.cpp
+            src/manager-gui/credential_manager.cpp
+            src/manager-gui/welcome_tab.cpp
         )
         
         target_link_libraries(shadps4-manager-gui PRIVATE
@@ -180,9 +182,25 @@ if(BUILD_GUI)
             ${Qt6Widgets_INCLUDE_DIRS}
         )
         
-        # On Windows, set it as a GUI application
+        # Unlock Code Generator (Admin Tool)
+        add_executable(shadps4-unlock-code-generator
+            src/unlock-generator/unlock_code_generator.cpp
+        )
+        
+        set_target_properties(shadps4-unlock-code-generator PROPERTIES
+            AUTOMOC ON
+        )
+        
+        target_link_libraries(shadps4-unlock-code-generator PRIVATE
+            Qt6::Widgets
+        )
+        
+        # On Windows, set GUI applications
         if(WIN32)
             set_target_properties(shadps4-manager-gui PROPERTIES
+                WIN32_EXECUTABLE TRUE
+            )
+            set_target_properties(shadps4-unlock-code-generator PROPERTIES
                 WIN32_EXECUTABLE TRUE
             )
         endif()

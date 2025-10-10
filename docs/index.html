@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ShadPs4Manager - PS4 Package Management Suite</title>
+    <link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🎮 ShadPs4Manager</h1>
+            <p class="tagline">Professional PS4 Package Management Suite</p>
+        </div>
+    </header>
+
+    <nav>
+        <div class="container">
+            <a href="#features">Features</a>
+            <a href="#applications">Applications</a>
+            <a href="#download">Download</a>
+            <a href="#documentation">Documentation</a>
+            <a href="https://github.com/CrownParkComputing/ShadPs4Manager">GitHub</a>
+        </div>
+    </nav>
+
+    <section id="hero" class="container">
+        <div class="hero-content">
+            <h2>Manage Your PS4 Packages with Ease</h2>
+            <p>A comprehensive toolkit for extracting, organizing, and managing PS4 PKG files. Built with Qt6 and modern C++.</p>
+            <div class="hero-buttons">
+                <a href="#download" class="btn btn-primary">Download Now</a>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager" class="btn btn-secondary">View Source</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="features" class="container">
+        <h2>Key Features</h2>
+        <div class="feature-grid">
+            <div class="feature-card">
+                <h3>📦 PKG Extraction</h3>
+                <p>Extract PS4 PKG files with support for base games, updates, and DLC</p>
+            </div>
+            <div class="feature-card">
+                <h3>📚 Game Library</h3>
+                <p>Organize and manage your extracted games with metadata from IGDB</p>
+            </div>
+            <div class="feature-card">
+                <h3>🔐 License System</h3>
+                <p>Built-in registration system with 10-game trial for new users</p>
+            </div>
+            <div class="feature-card">
+                <h3>⚡ Fast & Efficient</h3>
+                <p>Optimized multi-threaded extraction for maximum performance</p>
+            </div>
+            <div class="feature-card">
+                <h3>🖥️ Cross-Platform</h3>
+                <p>Runs on Linux, Windows, and macOS with native UI</p>
+            </div>
+            <div class="feature-card">
+                <h3>🎨 Modern Interface</h3>
+                <p>Clean, intuitive Qt6-based GUI with dark theme support</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="applications" class="container">
+        <h2>Three Powerful Applications</h2>
+        
+        <div class="app-showcase">
+            <div class="app-card">
+                <div class="app-icon">🖥️</div>
+                <h3>ShadPs4 Manager GUI</h3>
+                <p class="app-size">3.8 MB</p>
+                <p>The main application featuring a complete GUI for managing PS4 packages. Browse your game library, extract PKGs, view game details with IGDB integration, and manage installed content.</p>
+                <ul class="app-features">
+                    <li>Visual game library with cover art</li>
+                    <li>Batch PKG extraction</li>
+                    <li>IGDB metadata integration</li>
+                    <li>Update and DLC management</li>
+                    <li>Real-time extraction progress</li>
+                    <li>Customizable settings</li>
+                </ul>
+            </div>
+
+            <div class="app-card">
+                <div class="app-icon">⚙️</div>
+                <h3>PKG Extractor CLI</h3>
+                <p class="app-size">3.0 MB</p>
+                <p>Command-line tool for automated PKG extraction. Perfect for scripts, batch processing, or server environments. No GUI dependencies required.</p>
+                <ul class="app-features">
+                    <li>Fast command-line extraction</li>
+                    <li>Scriptable and automatable</li>
+                    <li>Verbose output mode</li>
+                    <li>Low resource usage</li>
+                </ul>
+                <div class="code-example">
+                    <code>./shadps4-pkg-extractor game.pkg /output/dir --verbose</code>
+                </div>
+            </div>
+
+            <div class="app-card">
+                <div class="app-icon">🔑</div>
+                <h3>Unlock Code Generator</h3>
+                <p class="app-size">85 KB</p>
+                <p>Admin tool for generating license keys to unlock the full version. Includes encrypted record keeping of all generated codes and customer information.</p>
+                <ul class="app-features">
+                    <li>Generate unlock codes from System IDs</li>
+                    <li>Encrypted customer email storage</li>
+                    <li>Generation history tracking</li>
+                    <li>Persistent record keeping</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <section id="download" class="container">
+        <h2>Download</h2>
+        <div class="download-section">
+            <h3>Latest Release: v1.0.1</h3>
+            <p>All applications are available for Linux, Windows, and macOS.</p>
+            
+            <div class="download-grid">
+                <div class="download-card">
+                    <h4>🐧 Linux</h4>
+                    <a href="https://github.com/CrownParkComputing/ShadPs4Manager/releases/latest" class="btn btn-download">
+                        Download for Linux (x64)
+                    </a>
+                    <p class="download-note">Requires Qt6, tested on Ubuntu 22.04+</p>
+                </div>
+
+                <div class="download-card">
+                    <h4>🪟 Windows</h4>
+                    <a href="https://github.com/CrownParkComputing/ShadPs4Manager/releases/latest" class="btn btn-download">
+                        Download for Windows (x64)
+                    </a>
+                    <p class="download-note">Windows 10/11, includes Qt6 runtime</p>
+                </div>
+
+                <div class="download-card">
+                    <h4>🍎 macOS</h4>
+                    <a href="https://github.com/CrownParkComputing/ShadPs4Manager/releases/latest" class="btn btn-download">
+                        Download for macOS (Universal)
+                    </a>
+                    <p class="download-note">macOS 11+ (Big Sur or later)</p>
+                </div>
+            </div>
+
+            <div class="build-from-source">
+                <h4>Build from Source</h4>
+                <p>For developers or advanced users who want to compile from source:</p>
+                <div class="code-example">
+                    <code>
+git clone https://github.com/CrownParkComputing/ShadPs4Manager.git<br>
+cd ShadPs4Manager<br>
+git submodule update --init --recursive<br>
+./build.sh
+                    </code>
+                </div>
+                <p>See <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/BUILD.md">BUILD.md</a> for detailed instructions.</p>
+            </div>
+        </div>
+    </section>
+
+    <section id="documentation" class="container">
+        <h2>Documentation</h2>
+        
+        <h3 style="text-align: center; margin-bottom: 30px; color: var(--text-secondary);">General Documentation</h3>
+        <div class="docs-grid">
+            <div class="doc-card">
+                <h3>📖 README</h3>
+                <p>Project overview and quick start guide</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/README.md">Read →</a>
+            </div>
+            <div class="doc-card">
+                <h3>🚀 Quick Start</h3>
+                <p>Get started in minutes with the basics</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/QUICKSTART.md">Read →</a>
+            </div>
+            <div class="doc-card">
+                <h3>🔨 Build Guide</h3>
+                <p>Detailed build instructions for all platforms</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/BUILD.md">Read →</a>
+            </div>
+            <div class="doc-card">
+                <h3>� Project Structure</h3>
+                <p>Codebase organization and architecture</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/PROJECT_STRUCTURE.md">Read →</a>
+            </div>
+        </div>
+
+        <h3 style="text-align: center; margin: 60px 0 30px 0; color: var(--text-secondary);">Application-Specific Documentation</h3>
+        <div class="docs-grid">
+            <div class="doc-card">
+                <h3>🖥️ Manager GUI</h3>
+                <p>Complete guide for the main application</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/docs/manager-gui/README.md">User Guide →</a><br>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/docs/manager-gui/BUILD.md">Build Guide →</a>
+            </div>
+            <div class="doc-card">
+                <h3>⚙️ PKG Extractor CLI</h3>
+                <p>Command-line tool usage and scripting</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/docs/pkg-extractor/README.md">User Guide →</a><br>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/docs/pkg-extractor/BUILD.md">Build Guide →</a>
+            </div>
+            <div class="doc-card">
+                <h3>� Unlock Generator</h3>
+                <p>Admin tool for license generation</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/docs/unlock-generator/README.md">User Guide →</a><br>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/docs/unlock-generator/BUILD.md">Build Guide →</a>
+            </div>
+        </div>
+
+        <h3 style="text-align: center; margin: 60px 0 30px 0; color: var(--text-secondary);">Administrator Documentation</h3>
+        <div class="docs-grid">
+            <div class="doc-card">
+                <h3>🔐 Registration System</h3>
+                <p>Technical documentation of the license system</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/REGISTRATION_SYSTEM.md">Read →</a>
+            </div>
+            <div class="doc-card">
+                <h3>👨‍💼 Admin Guide</h3>
+                <p>How to use the unlock code generator</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/ADMIN_GUIDE.md">Read →</a>
+            </div>
+            <div class="doc-card">
+                <h3>💾 Record Keeping</h3>
+                <p>Encrypted storage and backup procedures</p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/RECORD_KEEPING.md">Read →</a>
+            </div>
+        </div>
+    </section>
+
+    <section id="trial" class="container">
+        <h2>Try Before You Buy</h2>
+        <div class="trial-info">
+            <p>ShadPs4Manager includes a generous <strong>10-game trial</strong> for new users. Install and manage up to 10 games (including updates and DLC) to evaluate the software.</p>
+            <p>When you're ready to unlock the full version, the welcome screen will guide you through the registration process with our secure PayPal integration.</p>
+            <div class="trial-features">
+                <div class="trial-feature">
+                    <strong>✓ Full Feature Access</strong>
+                    <p>All features available during trial</p>
+                </div>
+                <div class="trial-feature">
+                    <strong>✓ No Time Limit</strong>
+                    <p>Use the trial as long as you need</p>
+                </div>
+                <div class="trial-feature">
+                    <strong>✓ Easy Upgrade</strong>
+                    <p>One-click PayPal registration</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section id="opensource" class="container">
+        <h2>Open Source</h2>
+        <div class="opensource-info">
+            <p>ShadPs4Manager is licensed under <strong>GPL-3.0</strong>, making it free and open source software. You're welcome to:</p>
+            <ul>
+                <li>View and study the source code</li>
+                <li>Modify it for your own needs</li>
+                <li>Contribute improvements back to the project</li>
+                <li>Distribute modified versions (under GPL-3.0)</li>
+            </ul>
+            <a href="https://github.com/CrownParkComputing/ShadPs4Manager" class="btn btn-primary">View on GitHub</a>
+        </div>
+    </section>
+
+    <footer>
+        <div class="container">
+            <p>&copy; 2024 Crown Park Computing. Licensed under GPL-3.0.</p>
+            <p>
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager">GitHub</a> •
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/issues">Report Issue</a> •
+                <a href="https://github.com/CrownParkComputing/ShadPs4Manager/blob/main/LICENSE">License</a>
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

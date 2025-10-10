@@ -318,3 +318,37 @@ void InstallationFolder::loadInstalledGames() {
         }
     }
 }
+
+int InstallationFolder::getTotalInstalledCount() {
+    Settings& settings = Settings::instance();
+    QString gameLibraryPath = settings.getGameLibraryPath();
+    QString dlcPath = settings.getDlcFolderPath();
+    
+    int count = 0;
+    
+    // Count base games and updates
+    QDir gameDir(gameLibraryPath);
+    if (gameDir.exists()) {
+        QStringList entries = gameDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QString& entry : entries) {
+            if (entry.startsWith("CUSA") || entry.startsWith("PPSA")) {
+                count++; // Count both base games and updates
+            }
+        }
+    }
+    
+    // Count DLC
+    QDir dlcDir(dlcPath);
+    if (dlcDir.exists()) {
+        QStringList titleIdFolders = dlcDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        for (const QString& titleId : titleIdFolders) {
+            if (titleId.startsWith("CUSA") || titleId.startsWith("PPSA")) {
+                QDir titleDir(dlcDir.absoluteFilePath(titleId));
+                QStringList dlcSubdirs = titleDir.entryList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+                count += dlcSubdirs.size();
+            }
+        }
+    }
+    
+    return count;
+}
