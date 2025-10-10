@@ -385,9 +385,11 @@ public slots:
         }
         
         // Stop music when launching game
+#ifdef HAS_QT_MULTIMEDIA
         if (musicPlayer) {
             musicPlayer->pause();
         }
+#endif
         
         // Launch ShadPS4 and track the process
         shadps4Process = new QProcess(this);
@@ -398,9 +400,11 @@ public slots:
     
     void onEmulatorFinished(int exitCode, QProcess::ExitStatus exitStatus) {
         // Resume music when emulator closes
+#ifdef HAS_QT_MULTIMEDIA
         if (musicPlayer) {
             musicPlayer->play();
         }
+#endif
         
         if (shadps4Process) {
             shadps4Process->deleteLater();
@@ -415,9 +419,11 @@ public slots:
         killProcess.waitForFinished(3000); // Wait up to 3 seconds
         
         // Resume music after killing
+#ifdef HAS_QT_MULTIMEDIA
         if (musicPlayer) {
             musicPlayer->play();
         }
+#endif
         
         if (killProcess.exitCode() == 0 || killProcess.exitCode() == 1) {
             // Exit code 0 means processes were killed
@@ -749,6 +755,7 @@ void MainWindow::onSettingsChanged() {
 
 void MainWindow::connectSignals() {
     // Connect game launch signals to music control
+#ifdef HAS_QT_MULTIMEDIA
     connect(gameLibrary, &GameLibrary::gameLaunched, this, [this]() {
         if (musicPlayer) {
             musicPlayer->pause();
@@ -760,6 +767,7 @@ void MainWindow::connectSignals() {
             musicPlayer->play();
         }
     });
+#endif
 }
 
 void MainWindow::setupUI() {
