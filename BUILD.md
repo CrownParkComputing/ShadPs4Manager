@@ -2,6 +2,27 @@
 
 This repository includes a comprehensive build system with version management and GitHub Actions for automated builds.
 
+## ⚠️ IMPORTANT: Required Executables
+
+**ShadPs4Manager requires TWO executables to function properly:**
+
+1. **`shadps4-manager-gui`** - The main GUI application
+2. **`shadps4-pkg-extractor`** - The CLI tool for PKG extraction
+
+Both executables **MUST** be in the same folder for the application to work. The GUI will check for the CLI tool on startup and display an error if it's missing.
+
+### Why Two Executables?
+
+The application uses a **separation of concerns** architecture:
+- **GUI** (`shadps4-manager-gui`) - User interface, game library, settings
+- **CLI** (`shadps4-pkg-extractor`) - PKG file extraction, validation, processing
+
+This design provides:
+- **Process isolation** - CLI crashes don't affect the GUI
+- **Better debugging** - Test CLI independently
+- **Simpler threading** - Each extraction is a separate process
+- **Easier maintenance** - Changes to extraction logic don't require GUI rebuilds
+
 ## Quick Start
 
 ### Local Building
@@ -10,6 +31,23 @@ This repository includes a comprehensive build system with version management an
 # Simple build (Linux)
 ./build.sh
 
+# This will create:
+# - build/bin/shadps4-manager-gui      (Main application)
+# - build/bin/shadps4-pkg-extractor    (PKG extraction tool)
+```
+
+After building, **both executables** will be in `build/bin/`. You can run the GUI with:
+
+```bash
+cd build/bin
+./shadps4-manager-gui
+```
+
+The GUI will automatically look for `shadps4-pkg-extractor` in the same directory.
+
+#### Advanced Build Options
+
+```bash
 # Build with version increment
 ./build.sh patch    # 1.0.0 -> 1.0.1
 ./build.sh minor    # 1.0.0 -> 1.1.0
@@ -110,23 +148,27 @@ ShadPs4Manager/
 ### Linux Distribution
 ```
 ShadPs4Manager-X.Y.Z-linux-x64.tar.gz
-├── shadps4-manager-gui   # Main GUI application
-├── shadps4-cli          # Command line tool (if built)
-├── install.sh           # Installation script
-├── README.md            # Documentation
-└── LICENSE              # License file
+├── shadps4-manager-gui      # Main GUI application ⭐ REQUIRED
+├── shadps4-pkg-extractor    # PKG extraction tool ⭐ REQUIRED
+├── install.sh               # Installation script
+├── README.md                # Documentation
+└── LICENSE                  # License file
 ```
+
+**Both executables must remain in the same folder!**
 
 ### Windows Distribution
 ```
 ShadPs4Manager-X.Y.Z-windows-x64.zip
-├── shadps4-manager-gui.exe    # Main GUI application
-├── shadps4-cli.exe           # Command line tool (if built)
-├── install.bat               # Installation script
-├── Qt6*.dll                  # Qt6 dependencies
-├── README.md                 # Documentation
-└── LICENSE                   # License file
+├── shadps4-manager-gui.exe     # Main GUI application ⭐ REQUIRED
+├── shadps4-pkg-extractor.exe   # PKG extraction tool ⭐ REQUIRED
+├── install.bat                 # Installation script
+├── Qt6*.dll                    # Qt6 dependencies
+├── README.md                   # Documentation
+└── LICENSE                     # License file
 ```
+
+**Both executables must remain in the same folder!**
 
 ## Requirements
 
@@ -145,6 +187,16 @@ ShadPs4Manager-X.Y.Z-windows-x64.zip
 ## Troubleshooting
 
 ### Common Issues
+
+**"PKG Extractor not found" on startup**
+```
+Problem: GUI can't find shadps4-pkg-extractor
+Solution: Ensure both executables are in the same folder:
+  - shadps4-manager-gui
+  - shadps4-pkg-extractor
+  
+You can also set a custom path in Settings > PKG Extractor Path
+```
 
 **"CMake not found"**
 ```bash

@@ -4,10 +4,12 @@
 #include <QWidget>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QGridLayout>
 #include <QLabel>
 #include <QPushButton>
 #include <QFileDialog>
 #include <QGroupBox>
+#include <QScrollArea>
 #include <QMessageBox>
 #include <QDir>
 #include <QApplication>
@@ -33,10 +35,12 @@ private slots:
     void selectDownloadsPath();
     void selectShadPS4Path();
     void selectDlcFolderPath();
+    void selectPkgExtractorPath();
     void createGameLibraryDirectory();
     void createDownloadsDirectory();
     void createDlcFolderDirectory();
     void resetToDefaults();
+    void resetPkgExtractorPath();
     void saveIgdbCredentials();
     void setDefaultIgdbCredentials();
     void testIgdbConnection();
@@ -51,10 +55,12 @@ private:
     QLabel* downloadsPathLabel;
     QLabel* shadps4PathLabel;
     QLabel* dlcFolderPathLabel;
+    QLabel* pkgExtractorPathLabel;
     QLabel* gameLibraryStatusLabel;
     QLabel* downloadsStatusLabel;
     QLabel* shadps4StatusLabel;
     QLabel* dlcFolderStatusLabel;
+    QLabel* pkgExtractorStatusLabel;
 
     QCheckBox* useSystemShadPS4Checkbox;
 

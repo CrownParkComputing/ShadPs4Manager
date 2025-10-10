@@ -23,6 +23,11 @@ public:
     bool getUseSystemShadPS4() const;
     void setUseSystemShadPS4(bool useSystem);
 
+    // PKG Extractor tool settings
+    QString getPkgExtractorPath() const;
+    void setPkgExtractorPath(const QString& path);
+    QString getDefaultPkgExtractorPath() const;
+
     // DLC folder settings
     QString getDlcFolderPath() const;
     void setDlcFolderPath(const QString& path);

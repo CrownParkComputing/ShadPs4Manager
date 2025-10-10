@@ -60,6 +60,7 @@
 #include "settings_page.h"
 #include "game_library.h"
 #include "downloads_folder.h"
+#include "installation_folder.h"
 
 // Custom animated title widget with dancing letters
 class AnimatedTitleWidget : public QWidget {
@@ -74,6 +75,7 @@ public:
     AnimatedTitleWidget(QWidget* parent = nullptr) : QWidget(parent) {
         setMinimumHeight(80);
         setMaximumHeight(80);
+        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);  // Expand horizontally, fixed height
         
         animationTimer = new QTimer(this);
         connect(animationTimer, &QTimer::timeout, this, [this]() {
@@ -166,6 +168,9 @@ protected:
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
+signals:
+    void extractionFailed(const QString& pkgPath, const QString& errorMessage, PkgType pkgType);
+
 private:
     struct ExtractionRequest {
         QString pkgPath;
@@ -180,6 +185,7 @@ private:
     bool isExtracting = false;
     QProcess* currentExtractionProcess = nullptr;
     QTextEdit* extractionLogWidget = nullptr;  // Log output area
+    QWidget* extractionTabWidget = nullptr;  // Extraction tab container
     QTabWidget* mainTabWidget = nullptr;  // Reference to switch tabs
     
     // Music player
@@ -428,8 +434,8 @@ public slots:
         qDebug() << "Added to queue:" << pkgPath << "Type:" << static_cast<int>(pkgType);
         
         // Switch to extraction log tab when starting extraction
-        if (mainTabWidget && extractionLogWidget) {
-            int logTabIndex = mainTabWidget->indexOf(extractionLogWidget);
+        if (mainTabWidget && extractionTabWidget) {
+            int logTabIndex = mainTabWidget->indexOf(extractionTabWidget);
             if (logTabIndex >= 0) {
                 mainTabWidget->setCurrentIndex(logTabIndex);
             }
@@ -438,8 +444,6 @@ public slots:
         // Process queue if not already extracting
         processExtractionQueue();
     }
-
-    void openSettings(); // declaration for settings dialog slot
 
 private slots:
     void processExtractionQueue() {
@@ -480,8 +484,8 @@ private slots:
             extractionLogWidget->setTextCursor(cursor);
         }
         
-        // Get the path to our CLI pkg extractor executable (must be in same bin/ folder)
-        QString extractorPath = QCoreApplication::applicationDirPath() + "/shadps4-pkg-extractor";
+        // Get the path to our CLI pkg extractor executable
+        QString extractorPath = Settings::instance().getPkgExtractorPath();
         
         if (!QFile::exists(extractorPath)) {
             qDebug() << "CRITICAL ERROR: CLI pkg extractor not found at:" << extractorPath;
@@ -489,7 +493,7 @@ private slots:
                 extractionLogWidget->append(QString("<span style='color:red;'>CRITICAL ERROR: CLI extractor missing!</span>"));
                 extractionLogWidget->append(QString("<span style='color:red;'>Expected location: %1</span>").arg(extractorPath));
                 extractionLogWidget->append(QString("<span style='color:red;'>The GUI requires the shadps4-pkg-extractor CLI tool to extract PKG files.</span>"));
-                extractionLogWidget->append(QString("<span style='color:red;'>Please ensure both binaries are built and placed in the same directory.</span>"));
+                extractionLogWidget->append(QString("<span style='color:red;'>Please set the correct path in Settings or ensure both binaries are in the same directory.</span>"));
             }
             isExtracting = false;
             processExtractionQueue(); // Try next item
@@ -603,6 +607,11 @@ private slots:
                 if (extractionLogWidget) {
                     extractionLogWidget->append(QString("<span style='color:red;'>PKG extraction failed. Skipping to next in queue...</span>"));
                 }
+                
+                // Emit failure signal
+                QString errorMsg = QString("Exit code: %1").arg(exitCode);
+                emit extractionFailed(request.pkgPath, errorMsg, request.pkgType);
+                
                 // Continue with next item
                 onExtractionComplete();
             }
@@ -628,10 +637,14 @@ private slots:
         
         if (!currentExtractionProcess->waitForStarted(5000)) {
             qDebug() << "ERROR: Failed to start extraction process";
+            QString errorMsg = currentExtractionProcess->errorString();
             if (extractionLogWidget) {
                 extractionLogWidget->append(QString("<span style='color:red;'>ERROR: Failed to start process - %1</span>")
-                    .arg(currentExtractionProcess->errorString()));
+                    .arg(errorMsg));
             }
+            
+            // Emit failure signal
+            emit extractionFailed(request.pkgPath, errorMsg, request.pkgType);
             
             currentExtractionProcess->deleteLater();
             currentExtractionProcess = nullptr;
@@ -736,14 +749,102 @@ void MainWindow::setupUI() {
     setCentralWidget(centralWidget);
     QVBoxLayout* mainLayout = new QVBoxLayout(centralWidget);
 
-    // Animated title header with dancing letters
+    // Exit button row in top right
+    QHBoxLayout* topButtonLayout = new QHBoxLayout();
+    topButtonLayout->addStretch();
+    QPushButton* exitButton = new QPushButton("✕ Exit", this);
+    exitButton->setStyleSheet("QPushButton { background-color: #DC143C; color: white; font-weight: bold; padding: 8px 16px; border-radius: 4px; } QPushButton:hover { background-color: #B22222; }");
+    exitButton->setFixedWidth(100);
+    connect(exitButton, &QPushButton::clicked, this, &MainWindow::close);
+    topButtonLayout->addWidget(exitButton);
+    mainLayout->addLayout(topButtonLayout);
+
+    // Animated title header with dancing letters (full width)
     titleWidget = new AnimatedTitleWidget(this);
     mainLayout->addWidget(titleWidget);
+
+    // Tabs
+    QTabWidget* tabWidget = new QTabWidget(this);
+    mainTabWidget = tabWidget;  // Store reference for tab switching
+    gameLibrary = new GameLibrary();
+    tabWidget->addTab(gameLibrary, "Game Library");
+    DownloadsFolder* downloadsFolder = new DownloadsFolder();
+    tabWidget->addTab(downloadsFolder, "Downloads Folder");
+    InstallationFolder* installationFolder = new InstallationFolder();
+    tabWidget->addTab(installationFolder, "Installed Games");
+    
+    // Extraction Log tab with both extraction output and failure log
+    extractionTabWidget = new QWidget();
+    QVBoxLayout* extractionTabLayout = new QVBoxLayout(extractionTabWidget);
+    
+    // Extraction output (real-time log)
+    auto* extractionLabel = new QLabel("<b>📝 Extraction Output</b>");
+    extractionTabLayout->addWidget(extractionLabel);
+    
+    extractionLogWidget = new QTextEdit();
+    extractionLogWidget->setReadOnly(true);
+    extractionLogWidget->setFont(QFont("Monospace", 9));
+    extractionLogWidget->setPlaceholderText("Extraction output will appear here...");
+    extractionTabLayout->addWidget(extractionLogWidget, 2); // Give it more space
+    
+    // Failure log section
+    auto* failureLogGroup = new QGroupBox("⚠️ Installation Failures");
+    auto* failureLogLayout = new QVBoxLayout(failureLogGroup);
+    
+    auto* failureLogWidget = new QListWidget();
+    failureLogWidget->setMaximumHeight(150);
+    failureLogWidget->setAlternatingRowColors(true);
+    failureLogWidget->setStyleSheet(
+        "QListWidget { background-color: #3a2a2a; color: #ff6b6b; font-family: monospace; font-size: 11px; }"
+        "QListWidget::item { padding: 4px; border-bottom: 1px solid #4a3a3a; }"
+    );
+    
+    auto* clearFailuresButton = new QPushButton("Clear Failures");
+    clearFailuresButton->setMaximumWidth(120);
+    connect(clearFailuresButton, &QPushButton::clicked, this, [failureLogWidget]() {
+        failureLogWidget->clear();
+    });
+    
+    failureLogLayout->addWidget(failureLogWidget);
+    failureLogLayout->addWidget(clearFailuresButton, 0, Qt::AlignLeft);
+    extractionTabLayout->addWidget(failureLogGroup, 1); // Give it less space
+    
+    tabWidget->addTab(extractionTabWidget, "Extraction Log");
+    
+    // Connect failure signal to the new failure log widget in extraction tab
+    auto addFailureLog = [failureLogWidget](const QString& pkgPath, const QString& errorMessage, PkgType pkgType) {
+        QFileInfo pkgInfo(pkgPath);
+        QString fileName = pkgInfo.fileName();
+        
+        // Determine type label
+        QString typeLabel;
+        switch(pkgType) {
+            case PkgType::BaseGame: typeLabel = "Base Game"; break;
+            case PkgType::Update: typeLabel = "Update"; break;
+            case PkgType::DLC: typeLabel = "DLC"; break;
+            default: typeLabel = "Unknown"; break;
+        }
+        
+        QString failureMsg = QString("[%1] [%2] %3: %4")
+            .arg(QDateTime::currentDateTime().toString("HH:mm:ss"))
+            .arg(typeLabel)
+            .arg(fileName)
+            .arg(errorMessage);
+        failureLogWidget->addItem(failureMsg);
+    };
+    connect(this, &MainWindow::extractionFailed, this, addFailureLog);
+    
+    // Add Settings as a tab
+    SettingsPage* settingsPage = new SettingsPage();
+    tabWidget->addTab(settingsPage, "Settings");
+    connect(settingsPage, &SettingsPage::settingsChanged, this, &MainWindow::onSettingsChanged);
+    
+    mainLayout->addWidget(tabWidget);
 
     // Bottom controls layout
     QHBoxLayout* bottomLayout = new QHBoxLayout();
     
-    // Left side - Emulator controls
+    // Left side - Emulator controls (Launch and Kill only)
     QHBoxLayout* emulatorControls = new QHBoxLayout();
     QPushButton* launchButton = new QPushButton("Launch Emulator", this);
     launchButton->setStyleSheet("QPushButton { background-color: #6A5ACD; color: white; font-weight: bold; padding: 8px; }");
@@ -754,10 +855,6 @@ void MainWindow::setupUI() {
     killButton->setStyleSheet("QPushButton { background-color: #DC143C; color: white; font-weight: bold; padding: 8px; }");
     connect(killButton, &QPushButton::clicked, this, &MainWindow::killShadPS4);
     emulatorControls->addWidget(killButton);
-    
-    QPushButton* settingsButton = new QPushButton("Settings", this);
-    connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
-    emulatorControls->addWidget(settingsButton);
     
     bottomLayout->addLayout(emulatorControls);
     bottomLayout->addStretch();
@@ -791,43 +888,9 @@ void MainWindow::setupUI() {
     musicControls->addWidget(nextButton);
     
     bottomLayout->addLayout(musicControls);
-
-    QTabWidget* tabWidget = new QTabWidget(this);
-    mainTabWidget = tabWidget;  // Store reference for tab switching
-    gameLibrary = new GameLibrary();
-    tabWidget->addTab(gameLibrary, "Game Library");
-    DownloadsFolder* downloadsFolder = new DownloadsFolder();
-    tabWidget->addTab(downloadsFolder, "Downloads Folder");
-    extractionLogWidget = new QTextEdit();
-    extractionLogWidget->setReadOnly(true);
-    extractionLogWidget->setFont(QFont("Monospace", 9));
-    extractionLogWidget->setPlaceholderText("Extraction output will appear here...");
-    tabWidget->addTab(extractionLogWidget, "Extraction Log");
-    mainLayout->addWidget(tabWidget);
+    
     mainLayout->addLayout(bottomLayout);
     connect(downloadsFolder, &DownloadsFolder::extractionRequested, this, &MainWindow::extractPkgFile);
-}
-
-void MainWindow::openSettings() {
-    QDialog* settingsDialog = new QDialog(this);
-    settingsDialog->setWindowTitle("Settings");
-    settingsDialog->setMinimumSize(800, 600);
-
-    auto* dialogLayout = new QVBoxLayout(settingsDialog);
-    auto* settingsPageDialog = new SettingsPage();
-    dialogLayout->addWidget(settingsPageDialog);
-
-    auto* buttonLayout = new QHBoxLayout();
-    buttonLayout->addStretch();
-    auto* closeButton = new QPushButton("Close");
-    connect(closeButton, &QPushButton::clicked, settingsDialog, &QDialog::accept);
-    buttonLayout->addWidget(closeButton);
-    dialogLayout->addLayout(buttonLayout);
-
-    connect(settingsPageDialog, &SettingsPage::settingsChanged, this, &MainWindow::onSettingsChanged);
-
-    settingsDialog->exec();
-    settingsDialog->deleteLater();
 }
 
 int main(int argc, char* argv[]) {
@@ -868,7 +931,7 @@ int main(int argc, char* argv[]) {
     app.processEvents();
     
     // Verify CLI extractor exists
-    QString extractorPath = QCoreApplication::applicationDirPath() + "/shadps4-pkg-extractor";
+    QString extractorPath = Settings::instance().getPkgExtractorPath();
     splash.showMessage("Checking dependencies...", Qt::AlignBottom | Qt::AlignCenter, Qt::white);
     app.processEvents();
     
@@ -878,9 +941,9 @@ int main(int argc, char* argv[]) {
             QString("Critical: CLI extraction tool not found!\n\n"
                     "Expected location: %1\n\n"
                     "The GUI requires the shadps4-pkg-extractor CLI tool.\n"
-                    "Both binaries must be built and placed in the bin/ folder.\n\n"
-                    "Please rebuild the project completely.").arg(extractorPath));
-        return 1;
+                    "Please set the correct path in Settings > PKG Extractor Tool Path.\n\n"
+                    "If you haven't built it yet, please rebuild the project completely.").arg(extractorPath));
+        // Don't exit - let user configure path in Settings
     }
     
     splash.showMessage("Initializing UI...", Qt::AlignBottom | Qt::AlignCenter, Qt::white);

@@ -21,6 +21,22 @@ void SettingsPage::setupUI() {
     headerLabel->setObjectName("settingsHeader");
     mainLayout->addWidget(headerLabel);
 
+    // Create scroll area for all settings
+    auto* scrollArea = new QScrollArea();
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    
+    auto* scrollContent = new QWidget();
+    auto* contentLayout = new QVBoxLayout(scrollContent);
+    scrollContent->setLayout(contentLayout);
+    
+    // Create 2-column grid layout for settings groups
+    auto* gridLayout = new QGridLayout();
+    gridLayout->setSpacing(10);
+    
+    // LEFT COLUMN (Column 0)
+
     // Game Library Section
     auto* gameLibraryGroup = new QGroupBox("Game Library Path");
     auto* gameLibraryLayout = new QVBoxLayout(gameLibraryGroup);
@@ -38,7 +54,7 @@ void SettingsPage::setupUI() {
     gameLibraryStatusLabel = new QLabel();
     gameLibraryLayout->addWidget(gameLibraryStatusLabel);
 
-    mainLayout->addWidget(gameLibraryGroup);
+    gridLayout->addWidget(gameLibraryGroup, 0, 0); // Row 0, Column 0
 
     // Downloads Section
     auto* downloadsGroup = new QGroupBox("Downloads Folder Path");
@@ -57,7 +73,28 @@ void SettingsPage::setupUI() {
     downloadsStatusLabel = new QLabel();
     downloadsLayout->addWidget(downloadsStatusLabel);
 
-    mainLayout->addWidget(downloadsGroup);
+    gridLayout->addWidget(downloadsGroup, 1, 0); // Row 1, Column 0
+
+    // DLC Folder Section
+    auto* dlcFolderGroup = new QGroupBox("DLC Folder Path");
+    auto* dlcFolderLayout = new QVBoxLayout(dlcFolderGroup);
+
+    auto* dlcFolderRow = new QHBoxLayout();
+    auto* selectDlcFolderButton = new QPushButton("Browse...");
+    auto* createDlcFolderButton = new QPushButton("Create Directory");
+    dlcFolderPathLabel = new QLabel();
+
+    dlcFolderRow->addWidget(selectDlcFolderButton);
+    dlcFolderRow->addWidget(createDlcFolderButton);
+    dlcFolderRow->addWidget(dlcFolderPathLabel, 1);
+
+    dlcFolderLayout->addLayout(dlcFolderRow);
+    dlcFolderStatusLabel = new QLabel();
+    dlcFolderLayout->addWidget(dlcFolderStatusLabel);
+
+    gridLayout->addWidget(dlcFolderGroup, 2, 0); // Row 2, Column 0
+    
+    // RIGHT COLUMN (Column 1)
 
     // ShadPS4 Executable Section
     auto* shadps4Group = new QGroupBox("ShadPS4 Emulator Path");
@@ -78,28 +115,35 @@ void SettingsPage::setupUI() {
     shadps4StatusLabel = new QLabel();
     shadps4Layout->addWidget(shadps4StatusLabel);
 
-    mainLayout->addWidget(shadps4Group);
+    gridLayout->addWidget(shadps4Group, 0, 1); // Row 0, Column 1
 
-    // DLC Folder Section
-    auto* dlcFolderGroup = new QGroupBox("DLC Folder Path");
-    auto* dlcFolderLayout = new QVBoxLayout(dlcFolderGroup);
+    // PKG Extractor Tool Section
+    auto* pkgExtractorGroup = new QGroupBox("PKG Extractor Tool Path");
+    auto* pkgExtractorLayout = new QVBoxLayout(pkgExtractorGroup);
+    
+    auto* pkgExtractorInfoLabel = new QLabel(
+        "⚠️ Required for installing games."
+    );
+    pkgExtractorInfoLabel->setWordWrap(true);
+    pkgExtractorInfoLabel->setStyleSheet("color: #FF9800; font-size: 10px; padding: 2px;");
+    pkgExtractorLayout->addWidget(pkgExtractorInfoLabel);
 
-    auto* dlcFolderRow = new QHBoxLayout();
-    auto* selectDlcFolderButton = new QPushButton("Browse...");
-    auto* createDlcFolderButton = new QPushButton("Create Directory");
-    dlcFolderPathLabel = new QLabel();
+    auto* pkgExtractorRow = new QHBoxLayout();
+    auto* selectPkgExtractorButton = new QPushButton("Browse...");
+    auto* resetPkgExtractorButton = new QPushButton("Reset");
+    pkgExtractorPathLabel = new QLabel();
 
-    dlcFolderRow->addWidget(selectDlcFolderButton);
-    dlcFolderRow->addWidget(createDlcFolderButton);
-    dlcFolderRow->addWidget(dlcFolderPathLabel, 1);
+    pkgExtractorRow->addWidget(selectPkgExtractorButton);
+    pkgExtractorRow->addWidget(resetPkgExtractorButton);
+    pkgExtractorRow->addWidget(pkgExtractorPathLabel, 1);
 
-    dlcFolderLayout->addLayout(dlcFolderRow);
-    dlcFolderStatusLabel = new QLabel();
-    dlcFolderLayout->addWidget(dlcFolderStatusLabel);
+    pkgExtractorLayout->addLayout(pkgExtractorRow);
+    pkgExtractorStatusLabel = new QLabel();
+    pkgExtractorLayout->addWidget(pkgExtractorStatusLabel);
 
-    mainLayout->addWidget(dlcFolderGroup);
+    gridLayout->addWidget(pkgExtractorGroup, 1, 1); // Row 1, Column 1
 
-    // IGDB API Section
+    // IGDB API Section (spans both columns)
     auto* igdbGroup = new QGroupBox("IGDB API Configuration");
     auto* igdbLayout = new QVBoxLayout(igdbGroup);
 
@@ -145,7 +189,10 @@ void SettingsPage::setupUI() {
     igdbButtonLayout->addStretch();
     igdbLayout->addLayout(igdbButtonLayout);
 
-    mainLayout->addWidget(igdbGroup);
+    gridLayout->addWidget(igdbGroup, 3, 0, 1, 2); // Row 3, spans both columns
+    
+    // Add the grid layout to the content layout
+    contentLayout->addLayout(gridLayout);
 
     // Bottom buttons
     auto* buttonLayout = new QHBoxLayout();
@@ -157,7 +204,14 @@ void SettingsPage::setupUI() {
     buttonLayout->addWidget(refreshButton);
     buttonLayout->addStretch();
 
-    mainLayout->addLayout(buttonLayout);
+    contentLayout->addLayout(buttonLayout);
+    
+    // Add stretch at the end of content
+    contentLayout->addStretch();
+    
+    // Set the scroll area content and add it to main layout
+    scrollArea->setWidget(scrollContent);
+    mainLayout->addWidget(scrollArea);
 
     // Connect signals
     connect(selectGameLibraryButton, &QPushButton::clicked, this, &SettingsPage::selectGameLibraryPath);
@@ -171,6 +225,8 @@ void SettingsPage::setupUI() {
     });
     connect(selectDlcFolderButton, &QPushButton::clicked, this, &SettingsPage::selectDlcFolderPath);
     connect(createDlcFolderButton, &QPushButton::clicked, this, &SettingsPage::createDlcFolderDirectory);
+    connect(selectPkgExtractorButton, &QPushButton::clicked, this, &SettingsPage::selectPkgExtractorPath);
+    connect(resetPkgExtractorButton, &QPushButton::clicked, this, &SettingsPage::resetPkgExtractorPath);
     connect(resetButton, &QPushButton::clicked, this, &SettingsPage::resetToDefaults);
     connect(refreshButton, &QPushButton::clicked, this, &SettingsPage::refreshSettings);
 
@@ -318,6 +374,18 @@ void SettingsPage::updatePathDisplay() {
         dlcFolderStatusLabel->setObjectName("statusInvalid");
     }
 
+    // Update PKG Extractor path display
+    QString pkgExtractorPath = settings.getPkgExtractorPath();
+    pkgExtractorPathLabel->setText(pkgExtractorPath.isEmpty() ? "Not configured" : pkgExtractorPath);
+    QFileInfo pkgExtractorFile(pkgExtractorPath);
+    if (pkgExtractorFile.exists() && pkgExtractorFile.isExecutable()) {
+        pkgExtractorStatusLabel->setText("✓ Extractor tool found and executable");
+        pkgExtractorStatusLabel->setObjectName("statusValid");
+    } else {
+        pkgExtractorStatusLabel->setText("✗ Extractor tool not found - PKG extraction will NOT work!");
+        pkgExtractorStatusLabel->setObjectName("statusInvalid");
+    }
+
     // Reapply styles to update colors
     applyStyles();
 }
@@ -373,6 +441,29 @@ void SettingsPage::selectDlcFolderPath() {
         Settings::instance().setDlcFolderPath(dir);
         refreshSettings();
     }
+}
+
+void SettingsPage::selectPkgExtractorPath() {
+    QString file = QFileDialog::getOpenFileName(
+        this,
+        "Select PKG Extractor Executable",
+        Settings::instance().getPkgExtractorPath(),
+        "Executables (*)"
+    );
+
+    if (!file.isEmpty()) {
+        Settings::instance().setPkgExtractorPath(file);
+        refreshSettings();
+        emit settingsChanged();
+    }
+}
+
+void SettingsPage::resetPkgExtractorPath() {
+    Settings::instance().setPkgExtractorPath(""); // Clear custom path
+    refreshSettings();
+    emit settingsChanged();
+    QMessageBox::information(this, "Reset",
+        "PKG Extractor path has been reset to default location.");
 }
 
 void SettingsPage::createGameLibraryDirectory() {

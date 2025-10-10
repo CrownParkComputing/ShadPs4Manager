@@ -2,6 +2,7 @@
 #include "credential_manager.h"
 #include <QStandardPaths>
 #include <QDir>
+#include <QCoreApplication>
 
 Settings& Settings::instance() {
     static Settings instance;
@@ -113,6 +114,42 @@ QString Settings::getDefaultShadPS4Path() const {
     }
 
     return QString(); // Return empty if not found
+}
+
+QString Settings::getPkgExtractorPath() const {
+    QString customPath = m_settings.value("paths/pkgExtractor", "").toString();
+    if (!customPath.isEmpty()) {
+        return customPath;
+    }
+    return getDefaultPkgExtractorPath();
+}
+
+void Settings::setPkgExtractorPath(const QString& path) {
+    m_settings.setValue("paths/pkgExtractor", path);
+    m_settings.sync();
+}
+
+QString Settings::getDefaultPkgExtractorPath() const {
+    // Try to find shadps4-pkg-extractor in common locations
+    QString appDir = QCoreApplication::applicationDirPath();
+    
+    QStringList commonPaths = {
+        appDir + "/shadps4-pkg-extractor",  // Same dir as GUI (preferred)
+        appDir + "/../bin/shadps4-pkg-extractor",  // Build tree
+        "/usr/bin/shadps4-pkg-extractor",
+        "/usr/local/bin/shadps4-pkg-extractor",
+        QStandardPaths::findExecutable("shadps4-pkg-extractor")
+    };
+
+    for (const QString& path : commonPaths) {
+        QFileInfo info(path);
+        if (info.exists() && info.isExecutable()) {
+            return info.absoluteFilePath();
+        }
+    }
+
+    // Default to same directory as GUI executable
+    return appDir + "/shadps4-pkg-extractor";
 }
 
 QString Settings::getDefaultDlcFolderPath() const {

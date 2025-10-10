@@ -157,6 +157,7 @@ if(BUILD_GUI)
             src/gui/game_library.cpp
             src/gui/gamecard.cpp
             src/gui/downloads_folder.cpp
+            src/gui/installation_folder.cpp
             src/gui/param_sfo.cpp
             src/gui/igdbservice.cpp
             src/gui/credential_manager.cpp

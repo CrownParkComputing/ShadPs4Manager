@@ -36,32 +36,6 @@ void DownloadsFolder::setupUI() {
     headerLayout->addWidget(installAllButton);
     mainLayout->addLayout(headerLayout);
 
-    // Installation Folder Structure Info Panel
-    auto* infoGroup = new QGroupBox("📁 Installation Folder Structure");
-    infoGroup->setObjectName("folderStructureInfo");
-    auto* infoLayout = new QVBoxLayout(infoGroup);
-    
-    Settings& settings = Settings::instance();
-    QString gameLibraryPath = settings.getGameLibraryPath();
-    QString dlcPath = settings.getDlcFolderPath();
-    
-    // Scan for actual installed games
-    QString installedGamesInfo = scanInstalledGames(gameLibraryPath, dlcPath);
-    
-    auto* infoLabel = new QLabel(
-        QString("<div style='font-family: monospace; font-size: 11px;'>"
-                "<b style='color: #4a9eff;'>Game Library:</b> %1<br>"
-                "<b style='color: #d9534f;'>DLC Folder:</b> %2<br><br>"
-                "%3"
-                "<br><br>"
-                "<i style='color: #888;'>PKG files will be automatically organized by Title ID</i>"
-                "</div>").arg(gameLibraryPath, dlcPath, installedGamesInfo)
-    );
-    infoLabel->setWordWrap(true);
-    infoLabel->setTextFormat(Qt::RichText);
-    infoLayout->addWidget(infoLabel);
-    mainLayout->addWidget(infoGroup);
-
     // Game tree (grouped by game with proper ordering)
     gameTreeWidget = new QTreeWidget();
     gameTreeWidget->setHeaderLabels({"Game / Package", "Content", "Version", "Size", "Actions"});
@@ -843,8 +817,7 @@ void DownloadsFolder::extractGame() {
 
     QString gameLibraryPath = Settings::instance().getGameLibraryPath();
     if (gameLibraryPath.isEmpty()) {
-        QMessageBox::warning(this, "No Library Path",
-            "Please configure the Game Library path in Settings first.");
+        statusLabel->setText("Error: Configure Game Library path in Settings");
         return;
     }
 
@@ -966,8 +939,9 @@ void DownloadsFolder::installGameInOrder() {
     
     QString gameLibraryPath = Settings::instance().getGameLibraryPath();
     if (gameLibraryPath.isEmpty()) {
-        QMessageBox::warning(this, "No Library Path",
-            "Please configure the Game Library path in Settings first.");
+        QString errorMsg = QString("[%1] No Game Library path configured")
+            .arg(QDateTime::currentDateTime().toString("HH:mm:ss"));
+        statusLabel->setText("Error: Configure Game Library path in Settings");
         return;
     }
     
@@ -988,53 +962,44 @@ void DownloadsFolder::installGameInOrder() {
         
         if (!hasSpace) {
             if (spaceError.contains("Warning: Very low disk space")) {
-                // Show warning and ask user if they want to continue
-                QMessageBox::StandardButton reply = QMessageBox::warning(this, 
-                    "Low Disk Space Warning", 
-                    spaceError,
-                    QMessageBox::Yes | QMessageBox::No);
-                
-                if (reply != QMessageBox::Yes) {
-                    return; // User chose not to continue
-                }
+                // Log warning but continue with installation
+                QString warningMsg = QString("[%1] Low disk space warning for '%2'")
+                    .arg(QDateTime::currentDateTime().toString("HH:mm:ss"))
+                    .arg(gameName);
             } else {
-                // Critical space error - don't allow installation
-                QMessageBox::critical(this, "Insufficient Disk Space", spaceError);
+                // Critical space error - log and abort
+                QString errorMsg = QString("[%1] Insufficient disk space for '%2': %3")
+                    .arg(QDateTime::currentDateTime().toString("HH:mm:ss"))
+                    .arg(gameName)
+                    .arg(spaceError);
                 return;
             }
         }
     }
     
-    QMessageBox::StandardButton reply = QMessageBox::question(this,
-        "Install Game in Order",
-        QString("Install all packages for '%1' in the correct order?\n\n"
-                "This will install: Base Game → Updates → DLC")
-                .arg(gameItem->text(0)),
-        QMessageBox::Yes | QMessageBox::No);
-
-    if (reply == QMessageBox::Yes) {
-        // Extract packages in order
-        for (int i = 0; i < gameItem->childCount(); ++i) {
-            QTreeWidgetItem* pkgItem = gameItem->child(i);
-            QString pkgPath = pkgItem->data(0, Qt::UserRole).toString();
-            
-            QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkgPath);
-            
-            emit extractionRequested(pkgPath, outputDir);
-        }
+    // Install all packages in order without confirmation modal
+    statusLabel->setText(QString("Installing '%1' - Base Game → Updates → DLC").arg(gameItem->text(0)));
+    for (int i = 0; i < gameItem->childCount(); ++i) {
+        QTreeWidgetItem* pkgItem = gameItem->child(i);
+        QString pkgPath = pkgItem->data(0, Qt::UserRole).toString();
+        
+        QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkgPath);
+        
+        emit extractionRequested(pkgPath, outputDir);
     }
 }
 
 void DownloadsFolder::extractSelectedPkgs() {
     if (gameGroups.isEmpty()) {
-        QMessageBox::information(this, "No Games", "No games found to install.");
+        statusLabel->setText("No games found to install.");
         return;
     }
 
     QString gameLibraryPath = Settings::instance().getGameLibraryPath();
     if (gameLibraryPath.isEmpty()) {
-        QMessageBox::warning(this, "No Library Path",
-            "Please configure the Game Library path in Settings first.");
+        QString errorMsg = QString("[%1] No Game Library path configured")
+            .arg(QDateTime::currentDateTime().toString("HH:mm:ss"));
+        statusLabel->setText("Error: Configure Game Library path in Settings");
         return;
     }
 
@@ -1050,36 +1015,29 @@ void DownloadsFolder::extractSelectedPkgs() {
     
     if (!hasSpace) {
         if (spaceError.contains("Warning: Very low disk space")) {
-            // Show warning and ask user if they want to continue
-            QMessageBox::StandardButton reply = QMessageBox::warning(this, 
-                "Low Disk Space Warning", 
-                spaceError,
-                QMessageBox::Yes | QMessageBox::No);
-            
-            if (reply != QMessageBox::Yes) {
-                return; // User chose not to continue
-            }
+            // Log warning but continue with installation
+            QString warningMsg = QString("[%1] Low disk space warning for batch installation")
+                .arg(QDateTime::currentDateTime().toString("HH:mm:ss"));
         } else {
-            // Critical space error - don't allow installation
-            QMessageBox::critical(this, "Insufficient Disk Space", spaceError);
+            // Critical space error - log and abort
+            QString errorMsg = QString("[%1] Insufficient disk space: %2")
+                .arg(QDateTime::currentDateTime().toString("HH:mm:ss"))
+                .arg(spaceError);
             return;
         }
     }
 
-    QMessageBox::StandardButton reply = QMessageBox::question(this,
-        "Install All Games",
-        QString("Install all %1 games in the correct order?\n\nTotal size: %2")
-            .arg(gameGroups.size())
-            .arg(formatBytes(std::accumulate(allPackages.begin(), allPackages.end(), 0ULL, 
-                [](uint64_t sum, const DownloadInfo& pkg) { return sum + static_cast<uint64_t>(pkg.size); }))),
-        QMessageBox::Yes | QMessageBox::No);
-
-    if (reply == QMessageBox::Yes) {
-        for (const GameGroup& group : gameGroups) {
-            for (const DownloadInfo& pkg : group.packages) {
-                QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkg.path);
-                emit extractionRequested(pkg.path, outputDir);
-            }
+    // Install all games without confirmation modal
+    uint64_t totalSize = std::accumulate(allPackages.begin(), allPackages.end(), 0ULL, 
+        [](uint64_t sum, const DownloadInfo& pkg) { return sum + static_cast<uint64_t>(pkg.size); });
+    statusLabel->setText(QString("Installing all %1 games - Total: %2")
+        .arg(gameGroups.size())
+        .arg(formatBytes(totalSize)));
+    
+    for (const GameGroup& group : gameGroups) {
+        for (const DownloadInfo& pkg : group.packages) {
+            QString outputDir = gameLibraryPath + "/" + getProperDirectoryName(pkg.path);
+            emit extractionRequested(pkg.path, outputDir);
         }
     }
 }
@@ -1214,8 +1172,9 @@ void DownloadsFolder::installSinglePackage(const DownloadInfo& pkg) {
     QString gameLibraryPath = settings.getGameLibraryPath();
     
     if (gameLibraryPath.isEmpty()) {
-        QMessageBox::warning(this, "No Library Path", 
-            "Please configure a game library path in Settings first.");
+        QString errorMsg = QString("[%1] No Game Library path configured")
+            .arg(QDateTime::currentDateTime().toString("HH:mm:ss"));
+        statusLabel->setText("Error: Configure Game Library path in Settings");
         return;
     }
     
@@ -1228,55 +1187,27 @@ void DownloadsFolder::installGameGroup(const GameGroup& group) {
     QString gameLibraryPath = settings.getGameLibraryPath();
     
     if (gameLibraryPath.isEmpty()) {
-        QMessageBox::warning(this, "No Library Path", 
-            "Please configure a game library path in Settings first.");
+        QString errorMsg = QString("[%1] No Game Library path configured")
+            .arg(QDateTime::currentDateTime().toString("HH:mm:ss"));
+        statusLabel->setText("Error: Configure Game Library path in Settings");
         return;
     }
     
     // Check disk space for all packages in the group
     QString spaceError;
     if (!checkBatchDiskSpace(group.packages, gameLibraryPath, spaceError)) {
-        QMessageBox::critical(this, "Insufficient Disk Space", spaceError);
+        QString errorMsg = QString("[%1] Insufficient disk space for '%2': %3")
+            .arg(QDateTime::currentDateTime().toString("HH:mm:ss"))
+            .arg(group.gameName)
+            .arg(spaceError);
+        statusLabel->setText(QString("Error: Insufficient disk space for %1").arg(group.gameName));
         return;
     }
     
     qDebug() << "Installing game group:" << group.gameName << "with" << group.packages.size() << "packages";
     
-    // Check if there are Update PKGs (which are currently crashing)
-    int updateCount = 0;
-    for (const DownloadInfo& pkg : group.packages) {
-        if (pkg.pkgType == PkgType::Update) {
-            updateCount++;
-        }
-    }
-    
+    // Don't skip updates - let them try to install (failures will be logged)
     bool skipUpdates = false;
-    if (updateCount > 0) {
-        QMessageBox msgBox(this);
-        msgBox.setIcon(QMessageBox::Warning);
-        msgBox.setWindowTitle("Update PKGs Detected");
-        msgBox.setText(QString("This game group contains %1 Update PKG(s).").arg(updateCount));
-        msgBox.setInformativeText(
-            "⚠️ KNOWN ISSUE: Update PKG extraction currently crashes (Exit Code 11).\n\n"
-            "The crash occurs in the PKG library's PFS parser for Update-type packages. "
-            "This is being investigated.\n\n"
-            "Recommendation: Skip Update PKGs for now. Base game + DLCs will install successfully.\n\n"
-            "What would you like to do?"
-        );
-        
-        QPushButton* skipBtn = msgBox.addButton("Skip Updates (Recommended)", QMessageBox::AcceptRole);
-        QPushButton* tryBtn = msgBox.addButton("Try Anyway (May Crash)", QMessageBox::RejectRole);
-        msgBox.setDefaultButton(skipBtn);
-        
-        msgBox.exec();
-        skipUpdates = (msgBox.clickedButton() == skipBtn);
-        
-        if (skipUpdates) {
-            qDebug() << "User chose to skip Update PKGs";
-        } else {
-            qDebug() << "User chose to attempt Update PKGs anyway";
-        }
-    }
     
     // Silently delete existing installations before reinstalling
     for (const DownloadInfo& pkg : group.packages) {
@@ -1316,11 +1247,7 @@ void DownloadsFolder::installGameGroup(const GameGroup& group) {
     }
     
     // Update status
-    if (skipUpdates && updateCount > 0) {
-        statusLabel->setText(QString("Queued %1 packages (skipped %2 updates)...").arg(queuedCount).arg(updateCount));
-    } else {
-        statusLabel->setText(QString("Queued %1 packages for installation...").arg(queuedCount));
-    }
+    statusLabel->setText(QString("Queued %1 packages for installation...").arg(queuedCount));
 }
 
 void DownloadsFolder::extractArchiveFile(const QString& archivePath) {

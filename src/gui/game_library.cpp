@@ -62,10 +62,11 @@ void GameLibrary::setupUI() {
     cardsContainer = new QWidget();
     scrollArea->setWidget(cardsContainer);
 
-    // Grid layout for cards (closer together)
+    // Grid layout for cards (minimal equal spacing both directions)
     cardsLayout = new QGridLayout(cardsContainer);
-    cardsLayout->setSpacing(8);  // Closer spacing (was 15)
-    cardsLayout->setContentsMargins(10, 10, 10, 10);  // Tighter margins (was 15)
+    cardsLayout->setHorizontalSpacing(8);  // 8px between cards horizontally
+    cardsLayout->setVerticalSpacing(8);    // 8px between cards vertically (same as horizontal)
+    cardsLayout->setContentsMargins(8, 8, 8, 8);  // Reduced margins for tighter layout
 
     // Status label
     statusLabel = new QLabel("Ready");
