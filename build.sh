@@ -208,6 +208,11 @@ create_linux_dist() {
         chmod +x "$dist_path/shadps4-manager-gui"
     fi
     
+    if [ -f "${BUILD_DIR}/bin/shadps4-pkg-extractor" ]; then
+        cp "${BUILD_DIR}/bin/shadps4-pkg-extractor" "$dist_path/"
+        chmod +x "$dist_path/shadps4-pkg-extractor"
+    fi
+    
     if [ -f "${BUILD_DIR}/bin/shadps4-cli" ]; then
         cp "${BUILD_DIR}/bin/shadps4-cli" "$dist_path/"
         chmod +x "$dist_path/shadps4-cli"

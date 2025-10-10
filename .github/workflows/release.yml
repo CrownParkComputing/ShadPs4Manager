@@ -111,11 +111,11 @@ jobs:
         
         # Copy binaries
         cp build/bin/shadps4-manager-gui dist/$DIST_NAME/
-        [ -f build/bin/shadps4-cli ] && cp build/bin/shadps4-cli dist/$DIST_NAME/ || true
+        cp build/bin/shadps4-pkg-extractor dist/$DIST_NAME/
         
         # Make executable
         chmod +x dist/$DIST_NAME/shadps4-manager-gui
-        [ -f dist/$DIST_NAME/shadps4-cli ] && chmod +x dist/$DIST_NAME/shadps4-cli || true
+        chmod +x dist/$DIST_NAME/shadps4-pkg-extractor
         
         # Copy documentation
         cp README.md dist/$DIST_NAME/ 2>/dev/null || true
@@ -180,9 +180,7 @@ jobs:
         
         # Copy binaries
         Copy-Item "build/bin/Release/shadps4-manager-gui.exe" "dist/$DIST_NAME/"
-        if (Test-Path "build/bin/Release/shadps4-cli.exe") {
-          Copy-Item "build/bin/Release/shadps4-cli.exe" "dist/$DIST_NAME/"
-        }
+        Copy-Item "build/bin/Release/shadps4-pkg-extractor.exe" "dist/$DIST_NAME/"
         
         # Use windeployqt
         & "$env:Qt6_DIR/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"

@@ -77,11 +77,12 @@ jobs:
           exit 1
         }
         
-        if (Test-Path "build/bin/Release/shadps4-cli.exe") {
-          Write-Host "CLI binary built successfully"
-          Get-ChildItem "build/bin/Release/shadps4-cli.exe"
+        if (Test-Path "build/bin/Release/shadps4-pkg-extractor.exe") {
+          Write-Host "PKG extractor binary built successfully"
+          Get-ChildItem "build/bin/Release/shadps4-pkg-extractor.exe"
         } else {
-          Write-Host "CLI binary not found - this may be expected"
+          Write-Host "PKG extractor binary not found"
+          exit 1
         }
       shell: powershell
       
@@ -93,9 +94,7 @@ jobs:
         
         # Copy main executable
         Copy-Item "build/bin/Release/shadps4-manager-gui.exe" "dist/$DIST_NAME/"
-        if (Test-Path "build/bin/Release/shadps4-cli.exe") {
-          Copy-Item "build/bin/Release/shadps4-cli.exe" "dist/$DIST_NAME/"
-        }
+        Copy-Item "build/bin/Release/shadps4-pkg-extractor.exe" "dist/$DIST_NAME/"
         
         # Use windeployqt to collect Qt dependencies
         if ($env:Qt6_DIR) {
@@ -146,7 +145,7 @@ jobs:
         path: |
           dist/*.zip
           build/bin/Release/shadps4-manager-gui.exe
-          build/bin/Release/shadps4-cli.exe
+          build/bin/Release/shadps4-pkg-extractor.exe
         retention-days: 30
         
     - name: Upload release artifacts
