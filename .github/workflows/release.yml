@@ -89,6 +89,7 @@ jobs:
         version: '6.7.0'
         host: 'linux'
         target: 'desktop'
+        modules: 'qtmultimedia'
         cache: true
           
     - name: Configure external dependencies
@@ -153,6 +154,7 @@ jobs:
         host: 'windows'
         target: 'desktop'
         arch: 'win64_msvc2019_64'
+        modules: 'qtmultimedia'
         cache: true
         
     - name: Configure external dependencies
