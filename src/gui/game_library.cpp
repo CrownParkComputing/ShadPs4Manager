@@ -807,10 +807,17 @@ void GameLibrary::onLaunchGame(const QString& gamePath) {
     QStringList args;
     args << ebootPath;
 
+    emit gameLaunched();  // Signal to pause music
+
     QProcess* process = new QProcess(this);
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this](int exitCode, QProcess::ExitStatus exitStatus) {
+        emit gameFinished();  // Signal to resume music
+    });
     process->start(shadps4Path, args);
 
     if (!process->waitForStarted()) {
+        emit gameFinished();  // Resume music if launch failed
         QMessageBox::critical(this, "Launch Failed",
             QString("Failed to launch game with ShadPS4:\n%1").arg(process->errorString()));
     } else {

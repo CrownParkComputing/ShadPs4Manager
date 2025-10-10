@@ -104,12 +104,12 @@ if(BUILD_GUI)
     find_package(OpenGL)
     
     # Try to find Qt6 with different methods
-    find_package(Qt6 COMPONENTS Widgets Network QUIET)
+    find_package(Qt6 COMPONENTS Widgets Network Multimedia QUIET)
     
     # If not found and CMAKE_PREFIX_PATH is set, try again
     if(NOT Qt6Widgets_FOUND AND CMAKE_PREFIX_PATH)
         message(STATUS "Retrying Qt6 search with CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
-        find_package(Qt6 COMPONENTS Widgets Network QUIET)
+        find_package(Qt6 COMPONENTS Widgets Network Multimedia QUIET)
     endif()
     
     # Try to find Qt6 in common locations if still not found
@@ -137,7 +137,7 @@ if(BUILD_GUI)
             if(EXISTS "${QT_PATH}" AND NOT Qt6Widgets_FOUND)
                 message(STATUS "Trying Qt6 path: ${QT_PATH}")
                 set(CMAKE_PREFIX_PATH "${QT_PATH};${CMAKE_PREFIX_PATH}")
-                find_package(Qt6 COMPONENTS Widgets Network QUIET)
+                find_package(Qt6 COMPONENTS Widgets Network Multimedia QUIET)
             endif()
         endforeach()
     endif()
@@ -165,6 +165,7 @@ if(BUILD_GUI)
         target_link_libraries(shadps4-manager-gui PRIVATE
             Qt6::Widgets
             Qt6::Network
+            Qt6::Multimedia
             shadps4_manager_core
         )
         

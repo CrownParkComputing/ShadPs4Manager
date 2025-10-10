@@ -54,6 +54,8 @@ public:
 signals:
     void gameSelected(const QString& gamePath);
     void extractionRequested(const QString& pkgPath, const QString& outputPath);
+    void gameLaunched();
+    void gameFinished();
 
 public slots:
     void refreshLibrary();

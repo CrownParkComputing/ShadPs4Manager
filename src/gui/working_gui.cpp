@@ -50,6 +50,10 @@
 #include <QPixmap>
 #include <QPainter>
 #include <QThread>
+#include <QMediaPlayer>
+#include <QAudioOutput>
+#include <QMediaDevices>
+#include <QAudioDevice>
 #include <chrono>
 
 #include "settings.h"
@@ -75,6 +79,17 @@ private:
     QProcess* currentExtractionProcess = nullptr;
     QTextEdit* extractionLogWidget = nullptr;  // Log output area
     QTabWidget* mainTabWidget = nullptr;  // Reference to switch tabs
+    
+    // Music player
+    QMediaPlayer* musicPlayer = nullptr;
+    QAudioOutput* audioOutput = nullptr;
+    QProcess* shadps4Process = nullptr;  // Track running emulator process
+    QStringList musicPlaylist;
+    int currentTrackIndex = 0;
+    QLabel* titleLabel = nullptr;
+    QLabel* trackLabel = nullptr;
+    QTimer* animationTimer = nullptr;
+    int animationFrame = 0;
 
 public:
     MainWindow(QWidget* parent = nullptr) : QMainWindow(parent) {
@@ -83,10 +98,125 @@ public:
         
         // Load settings on startup
         onSettingsChanged();
+        
+        // Initialize music player
+        setupMusicPlayer();
     }
 
     ~MainWindow() {
         // Clean up
+        if (musicPlayer) {
+            musicPlayer->stop();
+            delete musicPlayer;
+            musicPlayer = nullptr;
+        }
+        if (audioOutput) {
+            delete audioOutput;
+            audioOutput = nullptr;
+        }
+    }
+    
+    void setupMusicPlayer() {
+        musicPlayer = new QMediaPlayer(this);
+        audioOutput = new QAudioOutput(this);
+        
+        // Set HDMI output as default
+        const QAudioDevice hdmiDevice = findHdmiAudioDevice();
+        if (!hdmiDevice.isNull()) {
+            audioOutput->setDevice(hdmiDevice);
+        }
+        
+        musicPlayer->setAudioOutput(audioOutput);
+        
+        // Load playlist from jukebox folder
+        QDir jukeboxDir("/home/jon/ShadPs4Manager/src/jukebox");
+        QStringList filters;
+        filters << "*.mp3";
+        musicPlaylist = jukeboxDir.entryList(filters, QDir::Files, QDir::Name);
+        
+        if (!musicPlaylist.isEmpty()) {
+            // Convert to full paths
+            for (QString& track : musicPlaylist) {
+                track = jukeboxDir.absoluteFilePath(track);
+            }
+            
+            currentTrackIndex = 0;
+            audioOutput->setVolume(0.5);
+            
+            // Connect track finished signal to play next
+            connect(musicPlayer, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+                if (status == QMediaPlayer::EndOfMedia) {
+                    playNextTrack();
+                }
+            });
+            
+            playCurrentTrack();
+        }
+    }
+    
+    void playCurrentTrack() {
+        if (!musicPlaylist.isEmpty() && currentTrackIndex >= 0 && currentTrackIndex < musicPlaylist.size()) {
+            musicPlayer->setSource(QUrl::fromLocalFile(musicPlaylist[currentTrackIndex]));
+            musicPlayer->play();
+            
+            // Update track label
+            if (trackLabel) {
+                QFileInfo fileInfo(musicPlaylist[currentTrackIndex]);
+                QString trackName = fileInfo.completeBaseName();
+                trackLabel->setText("♫ " + trackName);
+            }
+        }
+    }
+    
+    void playNextTrack() {
+        if (!musicPlaylist.isEmpty()) {
+            currentTrackIndex = (currentTrackIndex + 1) % musicPlaylist.size();
+            playCurrentTrack();
+        }
+    }
+    
+    void playPreviousTrack() {
+        if (!musicPlaylist.isEmpty()) {
+            currentTrackIndex--;
+            if (currentTrackIndex < 0) {
+                currentTrackIndex = musicPlaylist.size() - 1;
+            }
+            playCurrentTrack();
+        }
+    }
+    
+    void togglePlayPause() {
+        if (musicPlayer) {
+            if (musicPlayer->playbackState() == QMediaPlayer::PlayingState) {
+                musicPlayer->pause();
+            } else {
+                musicPlayer->play();
+            }
+        }
+    }
+    
+    void stopMusic() {
+        if (musicPlayer) {
+            musicPlayer->stop();
+        }
+    }
+    
+    QAudioDevice findHdmiAudioDevice() {
+        QMediaDevices mediaDevices;
+        const QList<QAudioDevice> audioDevices = mediaDevices.audioOutputs();
+        
+        // Try to find HDMI device
+        for (const QAudioDevice &device : audioDevices) {
+            QString deviceName = device.description().toLower();
+            if (deviceName.contains("hdmi") || deviceName.contains("digital")) {
+                qDebug() << "Found HDMI audio device:" << device.description();
+                return device;
+            }
+        }
+        
+        // If no HDMI found, return default device
+        qDebug() << "No HDMI device found, using default:" << mediaDevices.defaultAudioOutput().description();
+        return mediaDevices.defaultAudioOutput();
     }
 
 public slots:
@@ -103,8 +233,28 @@ public slots:
             return;
         }
         
-        // Launch ShadPS4 without any game
-        QProcess::startDetached(shadps4Path);
+        // Stop music when launching game
+        if (musicPlayer) {
+            musicPlayer->pause();
+        }
+        
+        // Launch ShadPS4 and track the process
+        shadps4Process = new QProcess(this);
+        connect(shadps4Process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                this, &MainWindow::onEmulatorFinished);
+        shadps4Process->start(shadps4Path);
+    }
+    
+    void onEmulatorFinished(int exitCode, QProcess::ExitStatus exitStatus) {
+        // Resume music when emulator closes
+        if (musicPlayer) {
+            musicPlayer->play();
+        }
+        
+        if (shadps4Process) {
+            shadps4Process->deleteLater();
+            shadps4Process = nullptr;
+        }
     }
 
     void killShadPS4() {
@@ -112,6 +262,11 @@ public slots:
         QProcess killProcess;
         killProcess.start("pkill", QStringList() << "-9" << "-f" << "shadps4");
         killProcess.waitForFinished(3000); // Wait up to 3 seconds
+        
+        // Resume music after killing
+        if (musicPlayer) {
+            musicPlayer->play();
+        }
         
         if (killProcess.exitCode() == 0 || killProcess.exitCode() == 1) {
             // Exit code 0 means processes were killed
@@ -435,7 +590,18 @@ void MainWindow::onSettingsChanged() {
 }
 
 void MainWindow::connectSignals() {
-    // Reserved for future cross-component signals
+    // Connect game launch signals to music control
+    connect(gameLibrary, &GameLibrary::gameLaunched, this, [this]() {
+        if (musicPlayer) {
+            musicPlayer->pause();
+        }
+    });
+    
+    connect(gameLibrary, &GameLibrary::gameFinished, this, [this]() {
+        if (musicPlayer) {
+            musicPlayer->play();
+        }
+    });
 }
 
 void MainWindow::setupUI() {
@@ -446,22 +612,79 @@ void MainWindow::setupUI() {
     setCentralWidget(centralWidget);
     QVBoxLayout* mainLayout = new QVBoxLayout(centralWidget);
 
-    QHBoxLayout* buttonLayout = new QHBoxLayout();
+    // Animated title header
+    titleLabel = new QLabel("ShadPs4 Manager", this);
+    QFont titleFont = titleLabel->font();
+    titleFont.setPointSize(24);
+    titleFont.setBold(true);
+    titleLabel->setFont(titleFont);
+    titleLabel->setAlignment(Qt::AlignCenter);
+    titleLabel->setStyleSheet("QLabel { color: #6A5ACD; padding: 10px; }");
+    mainLayout->addWidget(titleLabel);
+    
+    // Setup animation timer for title
+    animationTimer = new QTimer(this);
+    connect(animationTimer, &QTimer::timeout, this, [this]() {
+        if (musicPlayer && musicPlayer->playbackState() == QMediaPlayer::PlayingState) {
+            animationFrame = (animationFrame + 1) % 360;
+            int hue = animationFrame;
+            QColor color = QColor::fromHsv(hue, 200, 200);
+            titleLabel->setStyleSheet(QString("QLabel { color: %1; padding: 10px; }").arg(color.name()));
+        }
+    });
+    animationTimer->start(50); // Update every 50ms
+
+    // Bottom controls layout
+    QHBoxLayout* bottomLayout = new QHBoxLayout();
+    
+    // Left side - Emulator controls
+    QHBoxLayout* emulatorControls = new QHBoxLayout();
     QPushButton* launchButton = new QPushButton("Launch Emulator", this);
     launchButton->setStyleSheet("QPushButton { background-color: #6A5ACD; color: white; font-weight: bold; padding: 8px; }");
     connect(launchButton, &QPushButton::clicked, this, &MainWindow::launchEmulator);
-    buttonLayout->addWidget(launchButton);
+    emulatorControls->addWidget(launchButton);
     
     QPushButton* killButton = new QPushButton("Kill ShadPS4", this);
     killButton->setStyleSheet("QPushButton { background-color: #DC143C; color: white; font-weight: bold; padding: 8px; }");
     connect(killButton, &QPushButton::clicked, this, &MainWindow::killShadPS4);
-    buttonLayout->addWidget(killButton);
+    emulatorControls->addWidget(killButton);
     
-    buttonLayout->addStretch();
     QPushButton* settingsButton = new QPushButton("Settings", this);
     connect(settingsButton, &QPushButton::clicked, this, &MainWindow::openSettings);
-    buttonLayout->addWidget(settingsButton);
-    mainLayout->addLayout(buttonLayout);
+    emulatorControls->addWidget(settingsButton);
+    
+    bottomLayout->addLayout(emulatorControls);
+    bottomLayout->addStretch();
+    
+    // Right side - Music controls
+    QHBoxLayout* musicControls = new QHBoxLayout();
+    
+    trackLabel = new QLabel("♫ No track", this);
+    trackLabel->setStyleSheet("QLabel { color: #888; font-style: italic; }");
+    trackLabel->setMinimumWidth(250);
+    musicControls->addWidget(trackLabel);
+    
+    QPushButton* prevButton = new QPushButton("⏮", this);
+    prevButton->setMaximumWidth(40);
+    connect(prevButton, &QPushButton::clicked, this, &MainWindow::playPreviousTrack);
+    musicControls->addWidget(prevButton);
+    
+    QPushButton* playPauseButton = new QPushButton("⏯", this);
+    playPauseButton->setMaximumWidth(40);
+    connect(playPauseButton, &QPushButton::clicked, this, &MainWindow::togglePlayPause);
+    musicControls->addWidget(playPauseButton);
+    
+    QPushButton* stopButton = new QPushButton("⏹", this);
+    stopButton->setMaximumWidth(40);
+    connect(stopButton, &QPushButton::clicked, this, &MainWindow::stopMusic);
+    musicControls->addWidget(stopButton);
+    
+    QPushButton* nextButton = new QPushButton("⏭", this);
+    nextButton->setMaximumWidth(40);
+    connect(nextButton, &QPushButton::clicked, this, &MainWindow::playNextTrack);
+    musicControls->addWidget(nextButton);
+    
+    bottomLayout->addLayout(musicControls);
 
     QTabWidget* tabWidget = new QTabWidget(this);
     mainTabWidget = tabWidget;  // Store reference for tab switching
@@ -475,6 +698,7 @@ void MainWindow::setupUI() {
     extractionLogWidget->setPlaceholderText("Extraction output will appear here...");
     tabWidget->addTab(extractionLogWidget, "Extraction Log");
     mainLayout->addWidget(tabWidget);
+    mainLayout->addLayout(bottomLayout);
     connect(downloadsFolder, &DownloadsFolder::extractionRequested, this, &MainWindow::extractPkgFile);
 }
 
