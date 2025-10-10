@@ -327,9 +327,11 @@ public:
     }
     
     void stopMusic() {
+#ifdef HAS_QT_MULTIMEDIA
         if (musicPlayer) {
             musicPlayer->stop();
         }
+#endif
     }
     
 
@@ -904,6 +906,7 @@ void MainWindow::setupUI() {
     bottomLayout->addLayout(emulatorControls);
     bottomLayout->addStretch();
     
+#ifdef HAS_QT_MULTIMEDIA
     // Right side - Music controls
     QHBoxLayout* musicControls = new QHBoxLayout();
     
@@ -933,6 +936,7 @@ void MainWindow::setupUI() {
     musicControls->addWidget(nextButton);
     
     bottomLayout->addLayout(musicControls);
+#endif
     
     mainLayout->addLayout(bottomLayout);
     connect(downloadsFolder, &DownloadsFolder::extractionRequested, this, &MainWindow::extractPkgFile);
