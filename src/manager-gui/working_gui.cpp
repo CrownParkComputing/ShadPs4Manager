@@ -47,10 +47,14 @@
 #include <QDebug>
 #include <QQueue>
 #include <QThread>
+
+#ifdef HAS_QT_MULTIMEDIA
 #include <QMediaPlayer>
 #include <QAudioOutput>
 #include <QMediaDevices>
 #include <QAudioDevice>
+#endif
+
 #include <chrono>
 
 #include "settings.h"
@@ -186,12 +190,16 @@ private:
     QWidget* extractionTabWidget = nullptr;  // Extraction tab container
     QTabWidget* mainTabWidget = nullptr;  // Reference to switch tabs
     
-    // Music player
+    // Music player (only if Qt Multimedia is available)
+#ifdef HAS_QT_MULTIMEDIA
     QMediaPlayer* musicPlayer = nullptr;
     QAudioOutput* audioOutput = nullptr;
+#endif
     QProcess* shadps4Process = nullptr;  // Track running emulator process
+#ifdef HAS_QT_MULTIMEDIA
     QStringList musicPlaylist;
     int currentTrackIndex = 0;
+#endif
     AnimatedTitleWidget* titleWidget = nullptr;
     QLabel* trackLabel = nullptr;
 
@@ -209,6 +217,7 @@ public:
 
     ~MainWindow() {
         // Clean up
+#ifdef HAS_QT_MULTIMEDIA
         if (musicPlayer) {
             musicPlayer->stop();
             delete musicPlayer;
@@ -218,9 +227,11 @@ public:
             delete audioOutput;
             audioOutput = nullptr;
         }
+#endif
     }
     
     void setupMusicPlayer() {
+#ifdef HAS_QT_MULTIMEDIA
         musicPlayer = new QMediaPlayer(this);
         audioOutput = new QAudioOutput(this);
         
@@ -263,9 +274,11 @@ public:
             
             playCurrentTrack();
         }
+#endif
     }
     
     void playCurrentTrack() {
+#ifdef HAS_QT_MULTIMEDIA
         if (!musicPlaylist.isEmpty() && currentTrackIndex >= 0 && currentTrackIndex < musicPlaylist.size()) {
             musicPlayer->setSource(QUrl::fromLocalFile(musicPlaylist[currentTrackIndex]));
             musicPlayer->play();
@@ -277,16 +290,20 @@ public:
                 trackLabel->setText("♫ " + trackName);
             }
         }
+#endif
     }
     
     void playNextTrack() {
+#ifdef HAS_QT_MULTIMEDIA
         if (!musicPlaylist.isEmpty()) {
             currentTrackIndex = (currentTrackIndex + 1) % musicPlaylist.size();
             playCurrentTrack();
         }
+#endif
     }
     
     void playPreviousTrack() {
+#ifdef HAS_QT_MULTIMEDIA
         if (!musicPlaylist.isEmpty()) {
             currentTrackIndex--;
             if (currentTrackIndex < 0) {
@@ -294,9 +311,11 @@ public:
             }
             playCurrentTrack();
         }
+#endif
     }
     
     void togglePlayPause() {
+#ifdef HAS_QT_MULTIMEDIA
         if (musicPlayer) {
             if (musicPlayer->playbackState() == QMediaPlayer::PlayingState) {
                 musicPlayer->pause();
@@ -304,6 +323,7 @@ public:
                 musicPlayer->play();
             }
         }
+#endif
     }
     
     void stopMusic() {
@@ -312,6 +332,8 @@ public:
         }
     }
     
+
+#ifdef HAS_QT_MULTIMEDIA
     QAudioDevice findHdmiAudioDevice() {
         QMediaDevices mediaDevices;
         
@@ -346,6 +368,7 @@ public:
         qDebug() << "⚠ No HDMI device found, using system default:" << defaultDevice.description();
         return defaultDevice;
     }
+#endif
 
 public slots:
     void refreshAllData() {
