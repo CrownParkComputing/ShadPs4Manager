@@ -28,7 +28,6 @@ jobs:
         version: '6.5.3'
         target: desktop
         arch: linux_x64
-        modules: 'qtbase qttools'
     
     - name: Install dependencies
       run: |
@@ -89,7 +88,6 @@ jobs:
         version: '6.5.3'
         target: desktop
         arch: win64_msvc2022_64
-        modules: 'qtbase qttools'
         cache: false
     
     - name: Setup MSVC
@@ -152,7 +150,6 @@ jobs:
       with:
         version: '6.5.3'
         target: desktop
-        modules: 'qtbase qttools'
     
     - name: Install dependencies
       run: |
