@@ -114,6 +114,35 @@ get_git_info() {
 }
 
 # Check dependencies
+check_dependencies() {
+    print_info "Checking dependencies..."
+
+    # Check for CMake
+    if ! command -v cmake &> /dev/null; then
+        print_error "CMake is not installed. Please install CMake 3.16 or higher."
+        exit 1
+    fi
+
+    # Check for Qt6
+    if ! pkg-config --exists Qt6Widgets; then
+        print_warning "Qt6 development libraries not found via pkg-config."
+        print_info "Make sure Qt6 development packages are installed."
+        print_info "On Ubuntu/Debian: sudo apt install qt6-base-dev qt6-tools-dev"
+        print_info "On Fedora: sudo dnf install qt6-qtbase-devel qt6-qttools-devel"
+    fi
+
+    # Check for required tools
+    local required_tools=("make" "gcc" "g++")
+    for tool in "${required_tools[@]}"; do
+        if ! command -v "$tool" &> /dev/null; then
+            print_error "$tool is not installed. Please install build-essential package."
+            exit 1
+        fi
+    done
+
+    print_success "Dependencies check completed"
+}
+
 # Clean build directory
 clean_build() {
     print_info "Cleaning build directory..."
@@ -277,36 +306,6 @@ main() {
 
 # Run main function
 main "$@"
-
-# Function to check dependencies
-check_dependencies() {
-    print_info "Checking dependencies..."
-
-    # Check for CMake
-    if ! command -v cmake &> /dev/null; then
-        print_error "CMake is not installed. Please install CMake 3.16 or higher."
-        exit 1
-    fi
-
-    # Check for Qt6
-    if ! pkg-config --exists Qt6Widgets; then
-        print_warning "Qt6 development libraries not found via pkg-config."
-        print_info "Make sure Qt6 development packages are installed."
-        print_info "On Ubuntu/Debian: sudo apt install qt6-base-dev qt6-tools-dev"
-        print_info "On Fedora: sudo dnf install qt6-qtbase-devel qt6-qttools-devel"
-    fi
-
-    # Check for required tools
-    local required_tools=("make" "gcc" "g++")
-    for tool in "${required_tools[@]}"; do
-        if ! command -v "$tool" &> /dev/null; then
-            print_error "$tool is not installed. Please install build-essential package."
-            exit 1
-        fi
-    done
-
-    print_success "Dependencies check completed"
-}
 
 # Function to clean build directory
 do_clean() {
@@ -511,66 +510,3 @@ run_interactive_menu() {
         fi
     done
 }
-
-# Main script logic
-main() {
-    # If arguments provided, use command line mode
-    if [ $# -gt 0 ]; then
-        case "$1" in
-            "clean")
-                do_clean
-                ;;
-            "configure")
-                check_dependencies
-                do_configure
-                ;;
-            "build")
-                check_dependencies
-                do_build
-                ;;
-            "install")
-                do_install
-                ;;
-            "run")
-                check_dependencies
-                do_run
-                ;;
-            "rebuild")
-                check_dependencies
-                do_rebuild
-                ;;
-            "menu")
-                run_interactive_menu
-                ;;
-            "help"|"-h"|"--help")
-                print_header
-                echo "Usage: $0 [OPTION]"
-                echo ""
-                echo "Command Line Options:"
-                echo "  build     Build the project"
-                echo "  run       Build and run the application"
-                echo "  clean     Clean build directory"
-                echo "  rebuild   Clean and rebuild everything"
-                echo "  configure Configure CMake build system"
-                echo "  install   Install system-wide"
-                echo "  menu      Start interactive menu mode"
-                echo "  help      Show this help message"
-                echo ""
-                echo "Interactive Menu:"
-                echo "  Run $0 without arguments or use '$0 menu' for interactive mode"
-                echo ""
-                ;;
-            *)
-                print_error "Unknown option: $1"
-                echo "Use '$0 help' for usage information"
-                exit 1
-                ;;
-        esac
-    else
-        # No arguments provided, show interactive menu
-        run_interactive_menu
-    fi
-}
-
-# Run the main function with all arguments
-main "$@"
