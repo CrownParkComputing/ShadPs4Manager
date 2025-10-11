@@ -114,38 +114,6 @@ get_git_info() {
 }
 
 # Check dependencies
-check_dependencies() {
-    print_info "Checking dependencies..."
-    
-    # Check CMake
-    if ! command -v cmake &> /dev/null; then
-        print_error "CMake is required but not installed"
-        exit 1
-    fi
-    
-    CMAKE_VERSION=$(cmake --version | head -n1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
-    print_info "Found CMake version: $CMAKE_VERSION"
-    
-    # Check Qt6 (for GUI)
-    if command -v qmake6 &> /dev/null || command -v qmake &> /dev/null; then
-        print_info "Qt6 found"
-    else
-        print_warning "Qt6 not found - GUI build may fail"
-    fi
-    
-    # Check compiler
-    if command -v g++ &> /dev/null; then
-        GCC_VERSION=$(g++ --version | head -n1)
-        print_info "Found compiler: $GCC_VERSION"
-    elif command -v clang++ &> /dev/null; then
-        CLANG_VERSION=$(clang++ --version | head -n1)
-        print_info "Found compiler: $CLANG_VERSION"
-    else
-        print_error "No C++ compiler found"
-        exit 1
-    fi
-}
-
 # Clean build directory
 clean_build() {
     print_info "Cleaning build directory..."
