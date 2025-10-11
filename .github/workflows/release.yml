@@ -1,107 +1,363 @@
+name: Release Build
+
 on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+        - patch
+        - minor
+        - major
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+  build-linux:
+    name: Build Linux Release
+    runs-on: ubuntu-22.04
+    
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          
+      - name: Set up build environment
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake ccache
-        shell: bash
-
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
+          sudo apt update
+          sudo apt install -y \
+            cmake \
+            build-essential \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libxcursor-dev \
+            libxi-dev \
+            pkg-config \
+            ninja-build
+            
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.7.0'
+          host: 'linux'
+          target: 'desktop'
+          cache: true
+            
+      - name: Configure external dependencies
         run: |
-          brew update
-          brew install cmake
-        shell: bash
-
-      - name: Install dependencies (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+          cd external/zlib
+          ./configure
+            
+      - name: Get version
+        id: version
         run: |
-          choco install -y cmake --installargs 'ADD_CMAKE_TO_PATH=System'
-
-      - name: Configure
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=install
-        shell: bash
-
-      - name: Build
-        run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            cmake --build build --config Release -- /m
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
           else
-            cmake --build build --config Release -- -j$(nproc || sysctl -n hw.ncpu)
+            VERSION=$(grep "project.*VERSION" CMakeLists.txt | sed -n 's/.*VERSION \([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
           fi
-        shell: bash
-
-      - name: Install
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+          
+      - name: Configure CMake
         run: |
-          cmake --install build --prefix install --config Release
-        shell: bash
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DBUILD_GUI=ON \
+            -DGIT_REV="${{ github.sha }}" \
+            -DGIT_BRANCH="${{ github.ref_name }}" \
+            -DGIT_DESC="${{ github.ref_name }}-${{ github.sha }}"
+            
+      - name: Build project
         run: |
-          $tag = "${{ github.ref_name }}"
-          $filename = "$tag-windows-x86_64.zip"
-          New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Compress-Archive -Path install\* -DestinationPath "dist\$filename"
-
-      - name: Package (linux/macOS)
-        if: runner.os != 'Windows'
+          cmake --build build --config Release -j$(nproc)
+          
+      - name: Test binaries
         run: |
-          tag=${GITHUB_REF#refs/tags/}
-          filename="${tag}-${{ matrix.os }}-x86_64.tar.gz"
-          mkdir -p dist
-          tar -czf dist/${filename} -C install .
-        shell: bash
-
-      - name: Upload job artifact
+          echo "=== Checking built binaries ==="
+          ls -lh build/bin/
+          
+          if [ -f "build/bin/shadps4-manager-gui" ]; then
+            echo "✅ GUI binary built successfully"
+            ldd build/bin/shadps4-manager-gui || true
+          else
+            echo "❌ GUI binary not found"
+            exit 1
+          fi
+          
+          if [ -f "build/bin/shadps4-pkg-extractor" ]; then
+            echo "✅ PKG extractor binary built successfully"
+          else
+            echo "❌ PKG extractor binary not found"
+            exit 1
+          fi
+          
+          if [ -f "build/bin/shadps4-unlock-code-generator" ]; then
+            echo "✅ Unlock generator binary built successfully"
+          else
+            echo "⚠️  Unlock generator binary not found (optional)"
+          fi
+          
+      - name: Create distribution
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+          DIST_NAME="ShadPs4Manager-${VERSION}-linux-x64"
+          mkdir -p dist/$DIST_NAME
+          
+          # Copy binaries
+          cp build/bin/shadps4-manager-gui dist/$DIST_NAME/
+          cp build/bin/shadps4-pkg-extractor dist/$DIST_NAME/
+          [ -f build/bin/shadps4-unlock-code-generator ] && cp build/bin/shadps4-unlock-code-generator dist/$DIST_NAME/ || true
+          
+          # Make executable
+          chmod +x dist/$DIST_NAME/shadps4-manager-gui
+          chmod +x dist/$DIST_NAME/shadps4-pkg-extractor
+          [ -f dist/$DIST_NAME/shadps4-unlock-code-generator ] && chmod +x dist/$DIST_NAME/shadps4-unlock-code-generator || true
+          
+          # Copy documentation
+          cp README.md dist/$DIST_NAME/ 2>/dev/null || true
+          cp LICENSE dist/$DIST_NAME/ 2>/dev/null || true
+          
+          # Create install script
+          cat > dist/$DIST_NAME/install.sh << 'EOF'
+          #!/bin/bash
+          echo "Installing ShadPs4Manager..."
+          sudo cp shadps4-manager-gui /usr/local/bin/
+          sudo cp shadps4-pkg-extractor /usr/local/bin/
+          if [ -f shadps4-unlock-code-generator ]; then
+            sudo cp shadps4-unlock-code-generator /usr/local/bin/
+          fi
+          echo "Installation complete. Run 'shadps4-manager-gui' to start."
+          EOF
+          chmod +x dist/$DIST_NAME/install.sh
+          
+          # Create archive
+          cd dist
+          tar -czf ${DIST_NAME}.tar.gz $DIST_NAME
+          cd ..
+          
+          echo "DIST_NAME=${DIST_NAME}" >> $GITHUB_ENV
+          
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: dist-${{ matrix.os }}
-          path: dist/*
+          name: linux-release
+          path: dist/*.tar.gz
+          retention-days: 90
+
+  build-windows:
+    name: Build Windows Release
+    runs-on: windows-2022
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          
+      - name: Set up MSVC
+        uses: microsoft/setup-msbuild@v1.3
+        
+      - name: Install Qt6
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: '6.7.0'
+          host: 'windows'
+          target: 'desktop'
+          arch: 'win64_msvc2019_64'
+          cache: true
+          
+      - name: Set up CMake
+        uses: lukka/get-cmake@latest
+        
+      - name: Configure external dependencies
+        run: |
+          # For Windows, copy zconf.h.in to zconf.h if it doesn't exist
+          if (!(Test-Path "external/zlib/zconf.h")) {
+            Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
+          }
+        shell: powershell
+        
+      - name: Get version
+        id: version
+        run: |
+          if ("${{ github.ref }}" -like "refs/tags/v*") {
+            $VERSION = "${{ github.ref }}" -replace 'refs/tags/v', ''
+          } else {
+            $VERSION = (Select-String -Path "CMakeLists.txt" -Pattern "project.*VERSION" | ForEach-Object { $_.Line -replace '.*VERSION\s+([0-9]+\.[0-9]+\.[0-9]+).*', '$1' })
+          }
+          echo "version=$VERSION" >> $env:GITHUB_OUTPUT
+          echo "Version: $VERSION"
+        shell: powershell
+        
+      - name: Configure CMake
+        run: |
+          cmake -B build `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DBUILD_GUI=ON `
+            -DCMAKE_VERBOSE_MAKEFILE=ON `
+            -DGIT_REV="${{ github.sha }}" `
+            -DGIT_BRANCH="${{ github.ref_name }}" `
+            -DGIT_DESC="${{ github.ref_name }}-${{ github.sha }}"
+        shell: powershell
+        
+      - name: Build project
+        run: |
+          cmake --build build --config Release -j
+        shell: powershell
+        
+      - name: Test binaries
+        run: |
+          Write-Host "=== Checking built binaries ==="
+          Get-ChildItem "build/bin/Release/"
+          
+          if (Test-Path "build/bin/Release/shadps4-manager-gui.exe") {
+            Write-Host "✅ GUI binary built successfully"
+            Get-ChildItem "build/bin/Release/shadps4-manager-gui.exe"
+          } else {
+            Write-Host "❌ GUI binary not found"
+            exit 1
+          }
+          
+          if (Test-Path "build/bin/Release/shadps4-pkg-extractor.exe") {
+            Write-Host "✅ PKG extractor binary built successfully"
+            Get-ChildItem "build/bin/Release/shadps4-pkg-extractor.exe"
+          } else {
+            Write-Host "❌ PKG extractor binary not found"
+            exit 1
+          }
+          
+          if (Test-Path "build/bin/Release/shadps4-unlock-code-generator.exe") {
+            Write-Host "✅ Unlock generator binary built successfully"
+          } else {
+            Write-Host "⚠️  Unlock generator binary not found (optional)"
+          }
+        shell: powershell
+        
+      - name: Create distribution
+        run: |
+          $VERSION = "${{ steps.version.outputs.version }}"
+          $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
+          New-Item -ItemType Directory -Path "dist/$DIST_NAME" -Force
+          
+          # Copy main executables
+          Copy-Item "build/bin/Release/shadps4-manager-gui.exe" "dist/$DIST_NAME/"
+          Copy-Item "build/bin/Release/shadps4-pkg-extractor.exe" "dist/$DIST_NAME/"
+          if (Test-Path "build/bin/Release/shadps4-unlock-code-generator.exe") {
+            Copy-Item "build/bin/Release/shadps4-unlock-code-generator.exe" "dist/$DIST_NAME/"
+          }
+          
+          # Use windeployqt to collect Qt dependencies
+          if ($env:Qt6_DIR) {
+            Write-Host "Using Qt6_DIR: $env:Qt6_DIR"
+            & "$env:Qt6_DIR/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+            if (Test-Path "dist/$DIST_NAME/shadps4-unlock-code-generator.exe") {
+              & "$env:Qt6_DIR/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-unlock-code-generator.exe"
+            }
+          } else {
+            Write-Host "Warning: Qt6_DIR not set, trying to find windeployqt"
+            $windeployqt = Get-Command windeployqt.exe -ErrorAction SilentlyContinue
+            if ($windeployqt) {
+              & $windeployqt.Source --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+              if (Test-Path "dist/$DIST_NAME/shadps4-unlock-code-generator.exe") {
+                & $windeployqt.Source --release --no-translations "dist/$DIST_NAME/shadps4-unlock-code-generator.exe"
+              }
+            } else {
+              Write-Host "Error: Could not find windeployqt.exe"
+              exit 1
+            }
+          }
+          
+          # Copy documentation
+          if (Test-Path "README.md") { Copy-Item "README.md" "dist/$DIST_NAME/" }
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" "dist/$DIST_NAME/" }
+          
+          # Create install script
+          @"
+          @echo off
+          echo Installing ShadPs4Manager...
+          if not exist "%ProgramFiles%\ShadPs4Manager" mkdir "%ProgramFiles%\ShadPs4Manager"
+          copy shadps4-manager-gui.exe "%ProgramFiles%\ShadPs4Manager\" >nul
+          copy shadps4-pkg-extractor.exe "%ProgramFiles%\ShadPs4Manager\" >nul
+          if exist shadps4-unlock-code-generator.exe copy shadps4-unlock-code-generator.exe "%ProgramFiles%\ShadPs4Manager\" >nul
+          echo Installation complete.
+          pause
+          "@ | Out-File -FilePath "dist/$DIST_NAME/install.bat" -Encoding ascii
+          
+          echo "DIST_NAME=$DIST_NAME" >> $env:GITHUB_ENV
+        shell: powershell
+        
+      - name: Create ZIP archive
+        run: |
+          cd dist
+          $VERSION = "${{ steps.version.outputs.version }}"
+          $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
+          Compress-Archive -Path "$DIST_NAME" -DestinationPath "$DIST_NAME.zip"
+          cd ..
+        shell: powershell
+        
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: dist/*.zip
+          retention-days: 90
 
   create-release:
-    name: Create GitHub Release and attach assets
+    name: Create GitHub Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    
     steps:
-      - name: Download all artifacts
+      - name: Get version
+        id: get_version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+          
+      - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-
-      - name: Create GitHub release
-        id: create_release
+          name: linux-release
+          path: release-assets
+          
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-release
+          path: release-assets
+          
+      - name: List release assets
+        run: |
+          echo "=== Release Assets ==="
+          ls -lh release-assets/
+          
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload release assets
-        uses: softprops/action-gh-release@v1
-        with:
-          files: artifacts/**/*
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: Release ${{ steps.get_version.outputs.version }}
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
