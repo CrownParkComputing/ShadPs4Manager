@@ -116,34 +116,31 @@ get_git_info() {
 # Check dependencies
 check_dependencies() {
     print_info "Checking dependencies..."
-    
-    # Check CMake
+
+    # Check for CMake
     if ! command -v cmake &> /dev/null; then
-        print_error "CMake is required but not installed"
+        print_error "CMake is not installed. Please install CMake 3.16 or higher."
         exit 1
     fi
-    
-    CMAKE_VERSION=$(cmake --version | head -n1 | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
-    print_info "Found CMake version: $CMAKE_VERSION"
-    
-    # Check Qt6 (for GUI)
-    if command -v qmake6 &> /dev/null || command -v qmake &> /dev/null; then
-        print_info "Qt6 found"
-    else
-        print_warning "Qt6 not found - GUI build may fail"
+
+    # Check for Qt6
+    if ! pkg-config --exists Qt6Widgets; then
+        print_warning "Qt6 development libraries not found via pkg-config."
+        print_info "Make sure Qt6 development packages are installed."
+        print_info "On Ubuntu/Debian: sudo apt install qt6-base-dev qt6-tools-dev"
+        print_info "On Fedora: sudo dnf install qt6-qtbase-devel qt6-qttools-devel"
     fi
-    
-    # Check compiler
-    if command -v g++ &> /dev/null; then
-        GCC_VERSION=$(g++ --version | head -n1)
-        print_info "Found compiler: $GCC_VERSION"
-    elif command -v clang++ &> /dev/null; then
-        CLANG_VERSION=$(clang++ --version | head -n1)
-        print_info "Found compiler: $CLANG_VERSION"
-    else
-        print_error "No C++ compiler found"
-        exit 1
-    fi
+
+    # Check for required tools
+    local required_tools=("make" "gcc" "g++")
+    for tool in "${required_tools[@]}"; do
+        if ! command -v "$tool" &> /dev/null; then
+            print_error "$tool is not installed. Please install build-essential package."
+            exit 1
+        fi
+    done
+
+    print_success "Dependencies check completed"
 }
 
 # Clean build directory
@@ -309,48 +306,6 @@ main() {
 
 # Run main function
 main "$@"
-    echo -e "  ${CYAN}2)${NC} Build and run"
-    echo -e "  ${CYAN}3)${NC} Clean build"
-    echo -e "  ${CYAN}4)${NC} Rebuild everything"
-    echo -e "  ${CYAN}5)${NC} Configure CMake"
-    echo -e "  ${CYAN}6)${NC} Install system-wide"
-    echo -e "  ${CYAN}7)${NC} Check dependencies"
-    echo -e "  ${CYAN}8)${NC} Show project info"
-    echo ""
-    echo -e "  ${RED}q)${NC} Quit"
-    echo ""
-    echo -n "Enter your choice [1-8 or q]: "
-}
-
-# Function to check dependencies
-check_dependencies() {
-    print_info "Checking dependencies..."
-
-    # Check for CMake
-    if ! command -v cmake &> /dev/null; then
-        print_error "CMake is not installed. Please install CMake 3.16 or higher."
-        exit 1
-    fi
-
-    # Check for Qt6
-    if ! pkg-config --exists Qt6Widgets; then
-        print_warning "Qt6 development libraries not found via pkg-config."
-        print_info "Make sure Qt6 development packages are installed."
-        print_info "On Ubuntu/Debian: sudo apt install qt6-base-dev qt6-tools-dev"
-        print_info "On Fedora: sudo dnf install qt6-qtbase-devel qt6-qttools-devel"
-    fi
-
-    # Check for required tools
-    local required_tools=("make" "gcc" "g++")
-    for tool in "${required_tools[@]}"; do
-        if ! command -v "$tool" &> /dev/null; then
-            print_error "$tool is not installed. Please install build-essential package."
-            exit 1
-        fi
-    done
-
-    print_success "Dependencies check completed"
-}
 
 # Function to clean build directory
 do_clean() {
@@ -555,66 +510,3 @@ run_interactive_menu() {
         fi
     done
 }
-
-# Main script logic
-main() {
-    # If arguments provided, use command line mode
-    if [ $# -gt 0 ]; then
-        case "$1" in
-            "clean")
-                do_clean
-                ;;
-            "configure")
-                check_dependencies
-                do_configure
-                ;;
-            "build")
-                check_dependencies
-                do_build
-                ;;
-            "install")
-                do_install
-                ;;
-            "run")
-                check_dependencies
-                do_run
-                ;;
-            "rebuild")
-                check_dependencies
-                do_rebuild
-                ;;
-            "menu")
-                run_interactive_menu
-                ;;
-            "help"|"-h"|"--help")
-                print_header
-                echo "Usage: $0 [OPTION]"
-                echo ""
-                echo "Command Line Options:"
-                echo "  build     Build the project"
-                echo "  run       Build and run the application"
-                echo "  clean     Clean build directory"
-                echo "  rebuild   Clean and rebuild everything"
-                echo "  configure Configure CMake build system"
-                echo "  install   Install system-wide"
-                echo "  menu      Start interactive menu mode"
-                echo "  help      Show this help message"
-                echo ""
-                echo "Interactive Menu:"
-                echo "  Run $0 without arguments or use '$0 menu' for interactive mode"
-                echo ""
-                ;;
-            *)
-                print_error "Unknown option: $1"
-                echo "Use '$0 help' for usage information"
-                exit 1
-                ;;
-        esac
-    else
-        # No arguments provided, show interactive menu
-        run_interactive_menu
-    fi
-}
-
-# Run the main function with all arguments
-main "$@"

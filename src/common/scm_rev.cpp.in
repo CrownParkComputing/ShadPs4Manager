@@ -5,7 +5,7 @@
 
 namespace Common {
 
-constexpr char g_version[]  = "1.0.1";
+constexpr char g_version[]  = "1.0.2";
 constexpr bool g_is_release = true;
 
 constexpr char g_scm_rev[]         = "@GIT_REV@";
