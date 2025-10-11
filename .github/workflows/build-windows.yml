@@ -18,6 +18,11 @@ jobs:
       with:
         fetch-depth: 0
         submodules: recursive
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
         
     - name: Set up MSVC
       uses: microsoft/setup-msbuild@v1.3
@@ -30,7 +35,8 @@ jobs:
         target: 'desktop'
         arch: 'win64_msvc2022_64'
         modules: 'qtbase qttools'
-        cache: false
+        cache: true
+        setup-python: 'false'
         
     - name: Set up CMake
       uses: lukka/get-cmake@latest

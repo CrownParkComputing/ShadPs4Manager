@@ -25,6 +25,11 @@ jobs:
       with:
         submodules: recursive
         fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
       
     - name: Set up build environment
       run: |
@@ -47,7 +52,10 @@ jobs:
         version: '6.7.0'
         host: 'linux'
         target: 'desktop'
+        arch: 'linux_gcc_64'
+        modules: 'qtbase qttools'
         cache: true
+        setup-python: 'false'
           
     - name: Configure external dependencies
       run: |
@@ -98,54 +106,25 @@ jobs:
       with:
         submodules: recursive
         fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
       
     - name: Set up MSVC
       uses: microsoft/setup-msbuild@v1.3
       
-    - name: Debug Qt6 installation attempt
-      run: |
-        Write-Host "=== Attempting Qt6 installation ==="
-        Write-Host "Available Qt versions:"
-        python -m pip install aqtinstall
-        python -m aqt list-qt windows desktop
-      shell: powershell
-      
-    - name: Install Qt6 (Method 1 - jurplel)
-      id: qt_install_1
-      continue-on-error: true
+    - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.3'
+        version: '6.7.0'
         host: 'windows'
         target: 'desktop'
         arch: 'win64_msvc2022_64'
-        modules: 'qt5compat'
-        cache: false
-        
-    - name: Install Qt6 (Method 2 - aqt directly)
-      if: steps.qt_install_1.outcome == 'failure'
-      run: |
-        python -m pip install aqtinstall
-        python -m aqt install-qt windows desktop 6.5.3 win64_msvc2022_64 --outputdir C:\Qt --modules qt5compat
-        echo "Qt6_DIR=C:\Qt\6.5.3\msvc2022_64" >> $env:GITHUB_ENV
-        echo "CMAKE_PREFIX_PATH=C:\Qt\6.5.3\msvc2022_64\lib\cmake\Qt6" >> $env:GITHUB_ENV
-      shell: powershell
-      
-    - name: Debug Qt6 location
-      run: |
-        Write-Host "=== Qt6 Environment Variables ==="
-        Write-Host "Qt6_DIR: $env:Qt6_DIR"
-        Write-Host "CMAKE_PREFIX_PATH: $env:CMAKE_PREFIX_PATH"
-        Write-Host ""
-        Write-Host "=== Qt6 Directory Contents ==="
-        if (Test-Path "C:\Qt") {
-          Get-ChildItem "C:\Qt" -Recurse -Depth 2
-        }
-        if ($env:Qt6_DIR -and (Test-Path $env:Qt6_DIR)) {
-          Write-Host "Qt6_DIR contents:"
-          Get-ChildItem $env:Qt6_DIR
-        }
-      shell: powershell
+        modules: 'qtbase qttools'
+        cache: true
+        setup-python: 'false'
       
     - name: Configure external dependencies
       run: |

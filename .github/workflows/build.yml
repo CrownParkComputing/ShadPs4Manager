@@ -22,13 +22,21 @@ jobs:
         submodules: recursive
         fetch-depth: 0
     
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
         version: '6.5.3'
-        target: desktop
-        arch: linux_x64
+        host: 'linux'
+        target: 'desktop'
+        arch: 'linux_gcc_64'
         modules: 'qtbase qttools'
+        cache: true
+        setup-python: 'false'
     
     - name: Install dependencies
       run: |
@@ -83,14 +91,21 @@ jobs:
         submodules: recursive
         fetch-depth: 0
     
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
         version: '6.5.3'
-        target: desktop
-        arch: win64_msvc2022_64
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2022_64'
         modules: 'qtbase qttools'
-        cache: false
+        cache: true
+        setup-python: 'false'
     
     - name: Setup MSVC
       uses: microsoft/setup-msbuild@v1.3
@@ -147,12 +162,20 @@ jobs:
         submodules: recursive
         fetch-depth: 0
     
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
         version: '6.5.3'
-        target: desktop
+        host: 'mac'
+        target: 'desktop'
         modules: 'qtbase qttools'
+        cache: true
+        setup-python: 'false'
     
     - name: Install dependencies
       run: |

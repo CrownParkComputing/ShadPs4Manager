@@ -37,6 +37,11 @@ jobs:
       with:
         fetch-depth: 0
         submodules: recursive
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
         
     - name: Set up build environment
       run: |
@@ -59,7 +64,10 @@ jobs:
         version: '6.7.0'
         host: 'linux'
         target: 'desktop'
+        arch: 'linux_gcc_64'
+        modules: 'qtbase qttools'
         cache: true
+        setup-python: 'false'
           
     - name: Configure external dependencies
       run: |
