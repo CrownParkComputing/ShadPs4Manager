@@ -122,10 +122,11 @@ if(BUILD_GUI)
             set(QT_SEARCH_PATHS
                 "$ENV{Qt6_DIR}"
                 "$ENV{QTDIR}"
-                "C:/Qt/6.5.3/msvc2019_64"
-                "C:/Qt/6.5.2/msvc2019_64"
-                "C:/Qt/6.5.1/msvc2019_64"
-                "C:/Qt/6.5.0/msvc2019_64"
+                "C:/Qt/6.7.0/msvc2022_64"
+                "C:/Qt/6.5.3/msvc2022_64"
+                "C:/Qt/6.5.2/msvc2022_64"
+                "C:/Qt/6.5.1/msvc2022_64"
+                "C:/Qt/6.5.0/msvc2022_64"
             )
         else()
             # Common Linux locations
