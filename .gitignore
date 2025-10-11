@@ -56,6 +56,10 @@ Thumbs.db
 # External dependencies (if you want to exclude them)
 # external/
 
+# zlib generated files (CMake handles these)
+external/zlib/Makefile
+external/zlib/zconf.h
+
 # Installation directories
 /usr/local/bin/shadps4-manager-gui
 /usr/local/share/shadps4-manager/
