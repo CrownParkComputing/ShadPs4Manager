@@ -100,8 +100,8 @@ jobs:
       id: version
       if: github.event.inputs.version_bump != 'none' && github.event.inputs.version_bump != ''
       run: |
-        chmod +x build.sh
-        ./build.sh ${{ github.event.inputs.version_bump }}
+        chmod +x scripts/build.sh
+        ./scripts/build.sh ${{ github.event.inputs.version_bump }}
         NEW_VERSION=$(grep "project.*VERSION" CMakeLists.txt | sed -n 's/.*VERSION \([0-9]\+\.[0-9]\+\.[0-9]\+\).*/\1/p')
         echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
         echo "New version: $NEW_VERSION"
@@ -127,20 +127,29 @@ jobs:
         
     - name: Test binaries
       run: |
+        echo "=== Checking built binaries ==="
+        ls -lh build/bin/
+        
         if [ -f "build/bin/shadps4-manager-gui" ]; then
-          echo "GUI binary built successfully"
+          echo "✅ GUI binary built successfully"
           ldd build/bin/shadps4-manager-gui || true
         else
-          echo "GUI binary not found"
+          echo "❌ GUI binary not found"
           exit 1
         fi
         
         if [ -f "build/bin/shadps4-pkg-extractor" ]; then
-          echo "PKG extractor binary built successfully"
+          echo "✅ PKG extractor binary built successfully"
           ldd build/bin/shadps4-pkg-extractor || true
         else
-          echo "PKG extractor binary not found"
+          echo "❌ PKG extractor binary not found"
           exit 1
+        fi
+        
+        if [ -f "build/bin/shadps4-unlock-code-generator" ]; then
+          echo "✅ Unlock generator binary built successfully"
+        else
+          echo "⚠️  Unlock generator binary not found (optional)"
         fi
         
     - name: Create distribution
@@ -156,10 +165,12 @@ jobs:
         # Copy binaries
         cp build/bin/shadps4-manager-gui dist/$DIST_NAME/
         cp build/bin/shadps4-pkg-extractor dist/$DIST_NAME/
+        [ -f build/bin/shadps4-unlock-code-generator ] && cp build/bin/shadps4-unlock-code-generator dist/$DIST_NAME/ || true
         
         # Make executable
         chmod +x dist/$DIST_NAME/shadps4-manager-gui
         chmod +x dist/$DIST_NAME/shadps4-pkg-extractor
+        [ -f dist/$DIST_NAME/shadps4-unlock-code-generator ] && chmod +x dist/$DIST_NAME/shadps4-unlock-code-generator || true
         
         # Copy documentation
         cp README.md dist/$DIST_NAME/ 2>/dev/null || true
@@ -171,6 +182,9 @@ jobs:
         echo "Installing ShadPs4Manager..."
         sudo cp shadps4-manager-gui /usr/local/bin/
         sudo cp shadps4-pkg-extractor /usr/local/bin/
+        if [ -f shadps4-unlock-code-generator ]; then
+          sudo cp shadps4-unlock-code-generator /usr/local/bin/
+        fi
         echo "Installation complete. Run 'shadps4-manager-gui' to start."
         EOF
         chmod +x dist/$DIST_NAME/install.sh

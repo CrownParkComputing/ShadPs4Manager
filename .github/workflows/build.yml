@@ -18,28 +18,16 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      
-    - name: Setup Python
-      uses: actions/setup-python@v4
       with:
-        python-version: '3.11.9'
-
-    - name: Upgrade pip & install py7zr
-      run: |
-        python -m pip install --upgrade pip setuptools wheel
-        python -m pip install --verbose py7zr==0.20.* --timeout 120
-
-    - name: Ensure p7zip on Linux
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y p7zip-full || true
-      shell: bash
+        submodules: recursive
+        fetch-depth: 0
     
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.*'
+        version: '6.5.3'
         target: desktop
+        arch: linux_x64
         modules: 'qtbase qttools'
     
     - name: Install dependencies
@@ -53,36 +41,43 @@ jobs:
           echo "Copied zconf.h from zconf.h.in"
         fi
     
+    - name: Configure external dependencies
+      run: |
+        cd external/zlib
+        ./configure
+    
     - name: Configure CMake
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja -DBUILD_GUI=ON
     
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
     
-    - name: Test CLI
+    - name: Test binaries
       run: |
-        cd ${{github.workspace}}/build/bin
-        ./shadps4-cli --help
-    
-    - name: Package
-      run: |
-        cd ${{github.workspace}}/build
-        cpack
+        echo "=== Checking built binaries ==="
+        ls -lh ${{github.workspace}}/build/bin/
+        
+        if [ -f "${{github.workspace}}/build/bin/shadps4-manager-gui" ]; then
+          echo "✅ GUI binary built successfully"
+        else
+          echo "❌ GUI binary not found"
+          exit 1
+        fi
+        
+        if [ -f "${{github.workspace}}/build/bin/shadps4-pkg-extractor" ]; then
+          echo "✅ PKG extractor binary built successfully"
+        else
+          echo "❌ PKG extractor binary not found"
+          exit 1
+        fi
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ShadPs4Manager-Linux-x64
-        path: build/*.tar.gz
-        
-    - name: Dump CMake and compiler diagnostics on failure
-      if: failure()
-      run: |
-        echo "=== CMakeCache.txt ==="
-        [ -f build/CMakeCache.txt ] && sed -n '1,400p' build/CMakeCache.txt || echo "CMakeCache.txt not present"
-        echo "=== Compiler include search ==="
-        ${CC:-gcc} -E -x c++ - -v < /dev/null || true
-      shell: bash
+        path: |
+          build/bin/shadps4-manager-gui
+          build/bin/shadps4-pkg-extractor
 
   build-windows:
     runs-on: windows-latest
@@ -90,21 +85,14 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      
-    - name: Setup Python
-      uses: actions/setup-python@v4
       with:
-        python-version: '3.11.9'
-
-    - name: Upgrade pip & install py7zr
-      run: |
-        python -m pip install --upgrade pip setuptools wheel
-        python -m pip install --verbose py7zr==0.20.* --timeout 120
+        submodules: recursive
+        fetch-depth: 0
     
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.*'
+        version: '6.5.3'
         target: desktop
         arch: win64_msvc2022_64
         modules: 'qtbase qttools'
@@ -121,36 +109,47 @@ jobs:
         }
       shell: powershell
     
+    - name: Configure external dependencies
+      run: |
+        # For Windows, copy zconf.h.in to zconf.h if it doesn't exist
+        if (!(Test-Path "external/zlib/zconf.h")) {
+          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
+        }
+      shell: powershell
+    
     - name: Configure CMake
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -A x64
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -A x64 -DBUILD_GUI=ON
     
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
     
-    - name: Test CLI
+    - name: Test binaries
       run: |
-        cd ${{github.workspace}}/build/bin/Release
-        ./shadps4-cli.exe --help
-    
-    - name: Package
-      run: |
-        cd ${{github.workspace}}/build
-        cpack
+        Write-Host "=== Checking built binaries ==="
+        Get-ChildItem "${{github.workspace}}/build/bin/Release/"
+        
+        if (Test-Path "${{github.workspace}}/build/bin/Release/shadps4-manager-gui.exe") {
+          Write-Host "✅ GUI binary built successfully"
+        } else {
+          Write-Host "❌ GUI binary not found"
+          exit 1
+        }
+        
+        if (Test-Path "${{github.workspace}}/build/bin/Release/shadps4-pkg-extractor.exe") {
+          Write-Host "✅ PKG extractor binary built successfully"
+        } else {
+          Write-Host "❌ PKG extractor binary not found"
+          exit 1
+        }
+      shell: powershell
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ShadPs4Manager-Windows-x64
-        path: build/*.zip
-        
-    - name: Dump CMake and compiler diagnostics on failure
-      if: failure()
-      run: |
-        Write-Host "=== CMakeCache.txt ==="
-        if (Test-Path build/CMakeCache.txt) { Get-Content build/CMakeCache.txt -TotalCount 400 } else { Write-Host "CMakeCache.txt not present" }
-        Write-Host "=== cl version ==="
-        & cl 2>&1 | Select-String "Version" || $true
-      shell: powershell
+        path: |
+          build/bin/Release/shadps4-manager-gui.exe
+          build/bin/Release/shadps4-pkg-extractor.exe
 
   build-macos:
     runs-on: macos-latest
@@ -158,31 +157,14 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-      
-    - name: Setup Python
-      uses: actions/setup-python@v4
       with:
-        python-version: '3.11.9'
-
-    - name: Upgrade pip & install py7zr
-      run: |
-        python -m pip install --upgrade pip setuptools wheel
-        python -m pip install --verbose py7zr==0.20.* --timeout 120
-
-    - name: Ensure p7zip on macOS
-      run: |
-        if ! brew list p7zip >/dev/null 2>&1; then
-          brew update
-          brew install p7zip
-        else
-          echo "p7zip already installed"
-        fi
-      shell: bash
+        submodules: recursive
+        fetch-depth: 0
     
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.*'
+        version: '6.5.3'
         target: desktop
         modules: 'qtbase qttools'
     
@@ -196,36 +178,43 @@ jobs:
           echo "Copied zconf.h from zconf.h.in"
         fi
     
+    - name: Configure external dependencies
+      run: |
+        cd external/zlib
+        ./configure
+    
     - name: Configure CMake
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja
+      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja -DBUILD_GUI=ON
     
     - name: Build
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
     
-    - name: Test CLI
+    - name: Test binaries
       run: |
-        cd ${{github.workspace}}/build/bin
-        ./shadps4-cli --help
-    
-    - name: Package
-      run: |
-        cd ${{github.workspace}}/build
-        cpack
+        echo "=== Checking built binaries ==="
+        ls -lh ${{github.workspace}}/build/bin/
+        
+        if [ -f "${{github.workspace}}/build/bin/shadps4-manager-gui" ]; then
+          echo "✅ GUI binary built successfully"
+        else
+          echo "❌ GUI binary not found"
+          exit 1
+        fi
+        
+        if [ -f "${{github.workspace}}/build/bin/shadps4-pkg-extractor" ]; then
+          echo "✅ PKG extractor binary built successfully"
+        else
+          echo "❌ PKG extractor binary not found"
+          exit 1
+        fi
     
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: ShadPs4Manager-macOS-x64
-        path: build/*.tar.gz
-        
-    - name: Dump CMake and compiler diagnostics on failure
-      if: failure()
-      run: |
-        echo "=== CMakeCache.txt ==="
-        [ -f build/CMakeCache.txt ] && sed -n '1,400p' build/CMakeCache.txt || echo "CMakeCache.txt not present"
-        echo "=== Compiler include search ==="
-        ${CC:-gcc} -E -x c++ - -v < /dev/null || true
-      shell: bash
+        path: |
+          build/bin/shadps4-manager-gui
+          build/bin/shadps4-pkg-extractor
 
   create-release:
     needs: [build-linux, build-windows, build-macos]

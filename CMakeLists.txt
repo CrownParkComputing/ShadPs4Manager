@@ -226,8 +226,14 @@ if(BUILD_GUI)
 endif()
 
 # Installation
+install(TARGETS shadps4-pkg-extractor RUNTIME DESTINATION bin)
+
 if(BUILD_GUI AND TARGET shadps4-manager-gui)
     install(TARGETS shadps4-manager-gui RUNTIME DESTINATION bin)
+endif()
+
+if(BUILD_GUI AND TARGET shadps4-unlock-code-generator)
+    install(TARGETS shadps4-unlock-code-generator RUNTIME DESTINATION bin)
 endif()
 
 # CPack configuration
