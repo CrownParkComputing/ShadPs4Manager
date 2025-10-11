@@ -19,6 +19,16 @@ jobs:
         fetch-depth: 0
         submodules: recursive
         
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11.9'
+
+    - name: Upgrade pip & install py7zr
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --verbose py7zr==0.20.* --timeout 120
+        
     - name: Set up MSVC
       uses: microsoft/setup-msbuild@v1.3
       
@@ -154,3 +164,12 @@ jobs:
         name: release-windows-x64
         path: dist/*.zip
         retention-days: 90
+        
+    - name: Dump CMake and compiler diagnostics on failure
+      if: failure()
+      run: |
+        Write-Host "=== CMakeCache.txt ==="
+        if (Test-Path build/CMakeCache.txt) { Get-Content build/CMakeCache.txt -TotalCount 400 } else { Write-Host "CMakeCache.txt not present" }
+        Write-Host "=== cl version ==="
+        & cl 2>&1 | Select-String "Version" || $true
+      shell: powershell

@@ -38,6 +38,22 @@ jobs:
         fetch-depth: 0
         submodules: recursive
         
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11.9'
+
+    - name: Upgrade pip & install py7zr
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --verbose py7zr==0.20.* --timeout 120
+
+    - name: Ensure p7zip on Linux
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y p7zip-full || true
+      shell: bash
+        
     - name: Set up build environment
       run: |
         sudo apt update
@@ -65,6 +81,13 @@ jobs:
       run: |
         cd external/zlib
         ./configure
+        cd ../..
+        
+        # Ensure zlib header exists
+        if [ ! -f external/zlib/zconf.h ]; then
+          cp external/zlib/zconf.h.in external/zlib/zconf.h
+          echo "Copied zconf.h from zconf.h.in"
+        fi
           
     - name: Get current version
       id: current_version
@@ -176,6 +199,15 @@ jobs:
         name: release-linux-x64
         path: dist/*.tar.gz
         retention-days: 90
+        
+    - name: Dump CMake and compiler diagnostics on failure
+      if: failure()
+      run: |
+        echo "=== CMakeCache.txt ==="
+        [ -f build/CMakeCache.txt ] && sed -n '1,400p' build/CMakeCache.txt || echo "CMakeCache.txt not present"
+        echo "=== Compiler include search ==="
+        ${CC:-gcc} -E -x c++ - -v < /dev/null || true
+      shell: bash
 
   create-release:
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')

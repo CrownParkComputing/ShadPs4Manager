@@ -18,6 +18,22 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11.9'
+
+    - name: Upgrade pip & install py7zr
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --verbose py7zr==0.20.* --timeout 120
+
+    - name: Ensure p7zip on Linux
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y p7zip-full || true
+      shell: bash
     
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
@@ -30,6 +46,12 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake ninja-build build-essential
+        
+        # Ensure zlib header exists
+        if [ ! -f external/zlib/zconf.h ]; then
+          cp external/zlib/zconf.h.in external/zlib/zconf.h
+          echo "Copied zconf.h from zconf.h.in"
+        fi
     
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja
@@ -52,6 +74,15 @@ jobs:
       with:
         name: ShadPs4Manager-Linux-x64
         path: build/*.tar.gz
+        
+    - name: Dump CMake and compiler diagnostics on failure
+      if: failure()
+      run: |
+        echo "=== CMakeCache.txt ==="
+        [ -f build/CMakeCache.txt ] && sed -n '1,400p' build/CMakeCache.txt || echo "CMakeCache.txt not present"
+        echo "=== Compiler include search ==="
+        ${CC:-gcc} -E -x c++ - -v < /dev/null || true
+      shell: bash
 
   build-windows:
     runs-on: windows-latest
@@ -59,6 +90,16 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11.9'
+
+    - name: Upgrade pip & install py7zr
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --verbose py7zr==0.20.* --timeout 120
     
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
@@ -70,6 +111,15 @@ jobs:
     
     - name: Setup MSVC
       uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Configure external dependencies
+      run: |
+        # Ensure zlib header exists
+        if (!(Test-Path "external/zlib/zconf.h")) {
+          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
+          Write-Host "Copied zconf.h from zconf.h.in"
+        }
+      shell: powershell
     
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -A x64
@@ -92,6 +142,15 @@ jobs:
       with:
         name: ShadPs4Manager-Windows-x64
         path: build/*.zip
+        
+    - name: Dump CMake and compiler diagnostics on failure
+      if: failure()
+      run: |
+        Write-Host "=== CMakeCache.txt ==="
+        if (Test-Path build/CMakeCache.txt) { Get-Content build/CMakeCache.txt -TotalCount 400 } else { Write-Host "CMakeCache.txt not present" }
+        Write-Host "=== cl version ==="
+        & cl 2>&1 | Select-String "Version" || $true
+      shell: powershell
 
   build-macos:
     runs-on: macos-latest
@@ -99,6 +158,26 @@ jobs:
     steps:
     - name: Checkout
       uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11.9'
+
+    - name: Upgrade pip & install py7zr
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --verbose py7zr==0.20.* --timeout 120
+
+    - name: Ensure p7zip on macOS
+      run: |
+        if ! brew list p7zip >/dev/null 2>&1; then
+          brew update
+          brew install p7zip
+        else
+          echo "p7zip already installed"
+        fi
+      shell: bash
     
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
@@ -110,6 +189,12 @@ jobs:
     - name: Install dependencies
       run: |
         brew install cmake ninja
+        
+        # Ensure zlib header exists
+        if [ ! -f external/zlib/zconf.h ]; then
+          cp external/zlib/zconf.h.in external/zlib/zconf.h
+          echo "Copied zconf.h from zconf.h.in"
+        fi
     
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja
@@ -132,6 +217,15 @@ jobs:
       with:
         name: ShadPs4Manager-macOS-x64
         path: build/*.tar.gz
+        
+    - name: Dump CMake and compiler diagnostics on failure
+      if: failure()
+      run: |
+        echo "=== CMakeCache.txt ==="
+        [ -f build/CMakeCache.txt ] && sed -n '1,400p' build/CMakeCache.txt || echo "CMakeCache.txt not present"
+        echo "=== Compiler include search ==="
+        ${CC:-gcc} -E -x c++ - -v < /dev/null || true
+      shell: bash
 
   create-release:
     needs: [build-linux, build-windows, build-macos]
