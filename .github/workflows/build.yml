@@ -22,8 +22,9 @@ jobs:
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.*'
+        version: '6.5.3'
         target: desktop
+        arch: linux_x64
         modules: 'qtbase qttools'
     
     - name: Install dependencies
@@ -63,7 +64,7 @@ jobs:
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.*'
+        version: '6.5.3'
         target: desktop
         arch: win64_msvc2022_64
         modules: 'qtbase qttools'
@@ -103,7 +104,7 @@ jobs:
     - name: Install Qt6
       uses: jurplel/install-qt-action@v3
       with:
-        version: '6.5.*'
+        version: '6.5.3'
         target: desktop
         modules: 'qtbase qttools'
     
