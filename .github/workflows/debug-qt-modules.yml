@@ -15,5 +15,5 @@ jobs:
         python -m aqt list-qt windows desktop
         echo ""
         echo "=== Available modules for 6.5.3 ==="
-        python -m aqt list-qt windows desktop --modules 6.5.3 win64_msvc2019_64
+        python -m aqt list-qt windows desktop --modules 6.5.3 win64_msvc2022_64
       shell: powershell
