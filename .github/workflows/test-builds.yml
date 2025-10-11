@@ -49,11 +49,6 @@ jobs:
         target: 'desktop'
         cache: true
           
-    - name: Configure external dependencies
-      run: |
-        cd external/zlib
-        ./configure
-          
     - name: Debug Qt6 installation
       run: |
         echo "=== Qt6 Package Info ==="
@@ -144,17 +139,6 @@ jobs:
         if ($env:Qt6_DIR -and (Test-Path $env:Qt6_DIR)) {
           Write-Host "Qt6_DIR contents:"
           Get-ChildItem $env:Qt6_DIR
-        }
-      shell: powershell
-      
-    - name: Configure external dependencies
-      run: |
-        # For Windows, copy zconf.h.in to zconf.h if it doesn't exist
-        if (!(Test-Path "external/zlib/zconf.h")) {
-          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
-          Write-Host "Generated zconf.h from zconf.h.in"
-        } else {
-          Write-Host "zconf.h already exists"
         }
       shell: powershell
       

@@ -35,14 +35,6 @@ jobs:
     - name: Set up CMake
       uses: lukka/get-cmake@latest
       
-    - name: Configure external dependencies
-      run: |
-        # For Windows, we might need to copy zconf.h.in to zconf.h if it doesn't exist
-        if (!(Test-Path "external/zlib/zconf.h")) {
-          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
-        }
-      shell: powershell
-      
     - name: Get current version
       id: version
       run: |

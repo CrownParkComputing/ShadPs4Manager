@@ -61,11 +61,6 @@ jobs:
         target: 'desktop'
         cache: true
           
-    - name: Configure external dependencies
-      run: |
-        cd external/zlib
-        ./configure
-          
     - name: Get current version
       id: current_version
       run: |

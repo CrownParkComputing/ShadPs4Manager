@@ -35,11 +35,6 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y cmake ninja-build build-essential
     
-    - name: Configure external dependencies
-      run: |
-        cd external/zlib
-        ./configure
-    
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja -DBUILD_GUI=ON
     
@@ -95,14 +90,6 @@ jobs:
     - name: Setup MSVC
       uses: microsoft/setup-msbuild@v1.3
     
-    - name: Configure external dependencies
-      run: |
-        # For Windows, copy zconf.h.in to zconf.h if it doesn't exist
-        if (!(Test-Path "external/zlib/zconf.h")) {
-          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
-        }
-      shell: powershell
-    
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" -DBUILD_GUI=ON
     
@@ -157,11 +144,6 @@ jobs:
     - name: Install dependencies
       run: |
         brew install cmake ninja
-    
-    - name: Configure external dependencies
-      run: |
-        cd external/zlib
-        ./configure
     
     - name: Configure CMake
       run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{env.BUILD_TYPE}} -G Ninja -DBUILD_GUI=ON
