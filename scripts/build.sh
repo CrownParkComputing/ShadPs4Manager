@@ -309,18 +309,6 @@ main() {
 
 # Run main function
 main "$@"
-    echo -e "  ${CYAN}2)${NC} Build and run"
-    echo -e "  ${CYAN}3)${NC} Clean build"
-    echo -e "  ${CYAN}4)${NC} Rebuild everything"
-    echo -e "  ${CYAN}5)${NC} Configure CMake"
-    echo -e "  ${CYAN}6)${NC} Install system-wide"
-    echo -e "  ${CYAN}7)${NC} Check dependencies"
-    echo -e "  ${CYAN}8)${NC} Show project info"
-    echo ""
-    echo -e "  ${RED}q)${NC} Quit"
-    echo ""
-    echo -n "Enter your choice [1-8 or q]: "
-}
 
 # Function to check dependencies
 check_dependencies() {
