@@ -180,8 +180,9 @@ jobs:
           version: '6.7.0'
           host: 'windows'
           target: 'desktop'
-          arch: 'win64_msvc2019_64'
-          cache: true
+          arch: 'win64_msvc2022_64'
+          modules: 'qtbase qttools'
+          cache: false
           
       - name: Set up CMake
         uses: lukka/get-cmake@latest
@@ -209,9 +210,12 @@ jobs:
       - name: Configure CMake
         run: |
           cmake -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
             -DCMAKE_BUILD_TYPE=Release `
             -DBUILD_GUI=ON `
             -DCMAKE_VERBOSE_MAKEFILE=ON `
+            -DCMAKE_PREFIX_PATH="$env:Qt6_DIR" `
             -DGIT_REV="${{ github.sha }}" `
             -DGIT_BRANCH="${{ github.ref_name }}" `
             -DGIT_DESC="${{ github.ref_name }}-${{ github.sha }}"
@@ -219,7 +223,7 @@ jobs:
         
       - name: Build project
         run: |
-          cmake --build build --config Release -j
+          cmake --build build --config Release -- /m
         shell: powershell
         
       - name: Test binaries
