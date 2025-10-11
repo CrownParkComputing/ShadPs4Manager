@@ -34,6 +34,12 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake ninja-build build-essential
+        
+        # Ensure zlib header exists
+        if [ ! -f external/zlib/zconf.h ]; then
+          cp external/zlib/zconf.h.in external/zlib/zconf.h
+          echo "Copied zconf.h from zconf.h.in"
+        fi
     
     - name: Configure external dependencies
       run: |
@@ -94,6 +100,15 @@ jobs:
     
     - name: Setup MSVC
       uses: microsoft/setup-msbuild@v1.3
+      
+    - name: Configure external dependencies
+      run: |
+        # Ensure zlib header exists
+        if (!(Test-Path "external/zlib/zconf.h")) {
+          Copy-Item "external/zlib/zconf.h.in" "external/zlib/zconf.h"
+          Write-Host "Copied zconf.h from zconf.h.in"
+        }
+      shell: powershell
     
     - name: Configure external dependencies
       run: |
@@ -157,6 +172,12 @@ jobs:
     - name: Install dependencies
       run: |
         brew install cmake ninja
+        
+        # Ensure zlib header exists
+        if [ ! -f external/zlib/zconf.h ]; then
+          cp external/zlib/zconf.h.in external/zlib/zconf.h
+          echo "Copied zconf.h from zconf.h.in"
+        fi
     
     - name: Configure external dependencies
       run: |
