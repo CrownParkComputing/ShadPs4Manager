@@ -68,20 +68,29 @@ jobs:
       
     - name: Test binaries
       run: |
+        Write-Host "=== Checking built binaries ==="
+        Get-ChildItem "build/bin/Release/"
+        
         if (Test-Path "build/bin/Release/shadps4-manager-gui.exe") {
-          Write-Host "GUI binary built successfully"
+          Write-Host "✅ GUI binary built successfully"
           Get-ChildItem "build/bin/Release/shadps4-manager-gui.exe"
         } else {
-          Write-Host "GUI binary not found"
+          Write-Host "❌ GUI binary not found"
           exit 1
         }
         
         if (Test-Path "build/bin/Release/shadps4-pkg-extractor.exe") {
-          Write-Host "PKG extractor binary built successfully"
+          Write-Host "✅ PKG extractor binary built successfully"
           Get-ChildItem "build/bin/Release/shadps4-pkg-extractor.exe"
         } else {
-          Write-Host "PKG extractor binary not found"
+          Write-Host "❌ PKG extractor binary not found"
           exit 1
+        }
+        
+        if (Test-Path "build/bin/Release/shadps4-unlock-code-generator.exe") {
+          Write-Host "✅ Unlock generator binary built successfully"
+        } else {
+          Write-Host "⚠️  Unlock generator binary not found (optional)"
         }
       shell: powershell
       
@@ -91,18 +100,28 @@ jobs:
         $DIST_NAME = "ShadPs4Manager-${VERSION}-windows-x64"
         New-Item -ItemType Directory -Path "dist/$DIST_NAME" -Force
         
-        # Copy main executable
+        # Copy main executables
         Copy-Item "build/bin/Release/shadps4-manager-gui.exe" "dist/$DIST_NAME/"
         Copy-Item "build/bin/Release/shadps4-pkg-extractor.exe" "dist/$DIST_NAME/"
+        if (Test-Path "build/bin/Release/shadps4-unlock-code-generator.exe") {
+          Copy-Item "build/bin/Release/shadps4-unlock-code-generator.exe" "dist/$DIST_NAME/"
+        }
         
         # Use windeployqt to collect Qt dependencies
         if ($env:Qt6_DIR) {
+          Write-Host "Using Qt6_DIR: $env:Qt6_DIR"
           & "$env:Qt6_DIR/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+          if (Test-Path "dist/$DIST_NAME/shadps4-unlock-code-generator.exe") {
+            & "$env:Qt6_DIR/bin/windeployqt.exe" --release --no-translations "dist/$DIST_NAME/shadps4-unlock-code-generator.exe"
+          }
         } else {
           Write-Host "Warning: Qt6_DIR not set, trying to find windeployqt"
           $windeployqt = Get-Command windeployqt.exe -ErrorAction SilentlyContinue
           if ($windeployqt) {
             & $windeployqt.Source --release --no-translations "dist/$DIST_NAME/shadps4-manager-gui.exe"
+            if (Test-Path "dist/$DIST_NAME/shadps4-unlock-code-generator.exe") {
+              & $windeployqt.Source --release --no-translations "dist/$DIST_NAME/shadps4-unlock-code-generator.exe"
+            }
           } else {
             Write-Host "Error: Could not find windeployqt.exe"
           }
@@ -116,11 +135,10 @@ jobs:
         @"
         @echo off
         echo Installing ShadPs4Manager...
-        copy shadps4-manager-gui.exe "%ProgramFiles%\ShadPs4Manager\" 2>nul || (
-          mkdir "%ProgramFiles%\ShadPs4Manager" 2>nul
-          copy shadps4-manager-gui.exe "%ProgramFiles%\ShadPs4Manager\"
-        )
-        if exist shadps4-cli.exe copy shadps4-cli.exe "%ProgramFiles%\ShadPs4Manager\"
+        if not exist "%ProgramFiles%\ShadPs4Manager" mkdir "%ProgramFiles%\ShadPs4Manager"
+        copy shadps4-manager-gui.exe "%ProgramFiles%\ShadPs4Manager\" >nul
+        copy shadps4-pkg-extractor.exe "%ProgramFiles%\ShadPs4Manager\" >nul
+        if exist shadps4-unlock-code-generator.exe copy shadps4-unlock-code-generator.exe "%ProgramFiles%\ShadPs4Manager\" >nul
         echo Installation complete.
         pause
         "@ | Out-File -FilePath "dist/$DIST_NAME/install.bat" -Encoding ascii
