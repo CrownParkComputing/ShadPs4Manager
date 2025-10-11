@@ -58,7 +58,6 @@ Thumbs.db
 
 # zlib generated files (CMake handles these)
 external/zlib/Makefile
-external/zlib/zconf.h
 
 # Installation directories
 /usr/local/bin/shadps4-manager-gui
