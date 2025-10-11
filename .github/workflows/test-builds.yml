@@ -52,9 +52,7 @@ jobs:
     - name: Configure external dependencies
       run: |
         cd external/zlib
-        ./configure \
-          pkg-config \
-          ninja-build
+        ./configure
           
     - name: Debug Qt6 installation
       run: |
